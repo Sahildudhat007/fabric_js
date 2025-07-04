@@ -1,6 +1,6 @@
 import React from 'react';
 
-function ShapeToolbar({ position, onDuplicate, onDelete }) {
+function ShapeEditor({ position, onDuplicate, onDelete }) {
     return (
         <>
             <div
@@ -30,4 +30,4 @@ function ShapeToolbar({ position, onDuplicate, onDelete }) {
     )
 }
 
-export default ShapeToolbar
+export default ShapeEditor
