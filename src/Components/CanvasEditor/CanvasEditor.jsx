@@ -221,6 +221,40 @@ function CanvasEditor() {
         fabricRef.current.add(line);
     };
 
+    const addPentagon = () => {
+        const pentagon = new fabric.Polygon([
+            { x: 50, y: 0 },
+            { x: 100, y: 38 },
+            { x: 82, y: 95 },
+            { x: 18, y: 95 },
+            { x: 0, y: 38 }
+        ], {
+            left: 290,
+            top: 140,
+            fill: 'black',
+            selectable: true
+        });
+        fabricRef.current.add(pentagon);
+    }
+
+    const addHexagon = () => {
+        const hexagon = new fabric.Polygon([
+            { x: 50, y: 0 },
+            { x: 100, y: 25 },
+            { x: 100, y: 75 },
+            { x: 50, y: 100 },
+            { x: 0, y: 75 },
+            { x: 0, y: 25 }
+        ], {
+            left: 100,
+            top: 200,
+            fill: 'black',
+            selectable: true
+        });
+        fabricRef.current.add(hexagon);
+    }
+
+
     const addText = () => {
         const text = new fabric.IText("Edit me", {
             left: 290,
@@ -307,6 +341,8 @@ function CanvasEditor() {
                     onAddRectangle={addRectangle}
                     onAddTriangle={addTriangle}
                     onAddCircle={addCircle}
+                    onAddPentagon={addPentagon}
+                    onAddHexagon={addHexagon}
                     onAddLine={addLine}
                     onAddText={addText}
                     onUploadImage={uploadImage}

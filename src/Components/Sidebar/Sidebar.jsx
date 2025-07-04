@@ -8,7 +8,7 @@ import { IoCloudUploadOutline } from "react-icons/io5";
 import { CiPen } from "react-icons/ci";
 // import { use } from 'react';
 
-function Sidebar({ onAddSquare, onAddRectangle, onAddTriangle, onAddCircle, onAddLine, onAddText, onUploadImage, onChangeColor, onChangeSize, onActivatePenTool, }) {
+function Sidebar({ onAddSquare, onAddRectangle, onAddTriangle, onAddCircle, onAddPentagon, onAddHexagon, onAddLine, onAddText, onUploadImage, onChangeColor, onChangeSize, onActivatePenTool, }) {
 
     const [showShapes, setShowShapes] = useState(false);
     const [activeTool, setActiveTool] = useState(null);
@@ -111,8 +111,8 @@ function Sidebar({ onAddSquare, onAddRectangle, onAddTriangle, onAddCircle, onAd
                         { onClick: onAddTriangle, viewBox: "0 0 64 64", path: "M32 0L64 56H0L32 0Z" },
                         { onClick: onAddSquare, viewBox: "0 0 64 56", path: "M32 56L64 0H0L32 56Z" },
                         { onClick: onAddSquare, viewBox: "0 0 64 64", path: "M32 0L64 32L32 64L0 32L32 0Z" },
-                        { onClick: onAddSquare, viewBox: "0 0 64 64", path: "M32 0L64 24.4458L51.7771 64H12.2229L0 24.4458L32 0Z" },
-                        { onClick: onAddSquare, viewBox: "0 0 55 64", path: "M27.5 0L55 16V48L27.5 64L0 48V16L27.5 0Z" },
+                        { onClick: onAddPentagon, viewBox: "0 0 64 64", path: "M32 0L64 24.4458L51.7771 64H12.2229L0 24.4458L32 0Z" },
+                        { onClick: onAddHexagon, viewBox: "0 0 55 64", path: "M27.5 0L55 16V48L27.5 64L0 48V16L27.5 0Z" },
                         { onClick: onAddSquare, viewBox: "0 0 64 55", path: "M64 27.5L48 55L16 55L0 27.5L16 0L48 0L64 27.5Z" },
                         { onClick: onAddSquare, viewBox: "0 0 64 64", path: "M45.25 0L64 18.75L64 45.25L45.25 64L18.75 64L0 45.25L0 18.75L18.75 0L45.25 0Z" },
                         { onClick: onAddSquare, viewBox: "0 0 64 64", path: "M51.4 0H12.6L0 12.6V51.4L12.6 64H51.4L64 51.4V12.6L51.4 0Z" },
