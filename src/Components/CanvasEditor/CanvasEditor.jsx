@@ -30,11 +30,11 @@ function CanvasEditor() {
         });
         fabricRef.current = canvas;
 
-        const createCircle = (x, y, fill, stroke = false) =>
+        const createCircle = (x, y, fill = 'white', stroke = true, visible = false) =>
             new fabric.Circle({
                 left: x,
                 top: y,
-                radius: 5,
+                radius: 6,
                 fill,
                 stroke: stroke ? 'black' : '',
                 strokeWidth: stroke ? 1 : 0,
@@ -43,13 +43,17 @@ function CanvasEditor() {
                 hasControls: false,
                 hasBorders: false,
                 selectable: true,
+                evented: true,
+                visible,
+                hoverCursor: 'pointer',
             });
 
-        const createLine = (p1, p2) =>
+        const createLine = (p1, p2, visible = false) =>
             new fabric.Line([p1.left, p1.top, p2.left, p2.top], {
-                stroke: 'lightgray',
+                stroke: 'gray',
                 selectable: false,
                 evented: false,
+                visible,
             });
 
         const handleMouseDown = (opt) => {
@@ -61,11 +65,9 @@ function CanvasEditor() {
 
             if (!isDrawing) return;
 
-            // double-click to finish path
             if (state.current.doubleClickTimer) {
                 clearTimeout(state.current.doubleClickTimer);
                 state.current.doubleClickTimer = null;
-
                 state.current.isDrawing = false;
                 finishPath();
                 return;
@@ -75,7 +77,7 @@ function CanvasEditor() {
                 state.current.doubleClickTimer = null;
             }, 300);
 
-            const anchor = createCircle(pointer.x, pointer.y, 'white', true);
+            const anchor = createCircle(pointer.x, pointer.y);
             canvas.add(anchor);
 
             const anchorData = {
@@ -91,35 +93,66 @@ function CanvasEditor() {
             if (anchors.length > 1) {
                 const prev = anchors[anchors.length - 2];
 
-                const dirOut = createCircle(prev.anchor.left + 50, prev.anchor.top, 'gray');
-                const dirIn = createCircle(pointer.x - 50, pointer.y, 'gray');
+                const dx = pointer.x - prev.anchor.left;
+                const dy = pointer.y - prev.anchor.top;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const offset = 50;
+                const ux = dx / dist;
+                const uy = dy / dist;
+
+                const dirOut = createCircle(
+                    prev.anchor.left + ux * offset,
+                    prev.anchor.top + uy * offset,
+                    'gray', true, true
+                );
+                const dirIn = createCircle(
+                    pointer.x - ux * offset,
+                    pointer.y - uy * offset,
+                    'gray', true, true
+                );
 
                 canvas.add(dirOut, dirIn);
+
                 prev.dirOut = dirOut;
                 anchorData.dirIn = dirIn;
 
                 const lineOut = createLine(prev.anchor, dirOut);
                 const lineIn = createLine(anchor, dirIn);
+
                 canvas.add(lineOut, lineIn);
+
                 prev.dirLineOut = lineOut;
                 anchorData.dirLineIn = lineIn;
 
                 const path = new fabric.Path(
-                    `M ${prev.anchor.left} ${prev.anchor.top} C ${dirOut.left} ${dirOut.top}, ${dirIn.left} ${dirIn.top}, ${anchor.left} ${anchor.top}`,
+                    `M ${prev.anchor.left} ${prev.anchor.top} L ${anchor.left} ${anchor.top}`,
                     {
                         stroke: 'blue',
                         fill: '',
                         selectable: true,
                         evented: true,
+                        objectCaching: false,
+                        hasBorders: false,
+                        hasControls: false,
+                        lockScalingX: true,
+                        lockScalingY: true,
+                        lockRotation: true,
                     }
                 );
                 state.current.paths.push(path);
                 canvas.add(path);
+
+                canvas.bringToFront(prev.anchor);
+                canvas.bringToFront(anchor);
+                canvas.bringToFront(dirOut);
+                canvas.bringToFront(dirIn);
+                canvas.bringToFront(lineOut);
+                canvas.bringToFront(lineIn);
             }
 
             canvas.renderAll();
         };
-
+        
         const handleMouseMove = (opt) => {
             if (!isPenToolActiveRef.current) return;
 
@@ -132,33 +165,33 @@ function CanvasEditor() {
             const last = anchors[anchors.length - 1];
 
             if (last && last.anchor) {
-                if (state.current.tempLine) {
-                    canvas.remove(state.current.tempLine);
-                }
+                if (state.current.tempLine) canvas.remove(state.current.tempLine);
 
-                const previewLine = new fabric.Line(
+                const preview = new fabric.Line(
                     [last.anchor.left, last.anchor.top, pointer.x, pointer.y],
                     {
                         stroke: 'lightgray',
                         selectable: false,
+                        evented: false,
                     }
                 );
-                state.current.tempLine = previewLine;
-                canvas.add(previewLine);
+
+                state.current.tempLine = preview;
+                canvas.add(preview);
                 canvas.renderAll();
             }
         };
 
         const finishPath = () => {
             const { paths, tempLine } = state.current;
-            if (tempLine) canvas.remove(tempLine);
+            if (tempLine) fabricRef.current.remove(tempLine);
 
-            paths.forEach((p) => {
+            paths.forEach(p => {
                 p.selectable = true;
                 p.evented = true;
             });
 
-            canvas.renderAll();
+            fabricRef.current.renderAll();
             isPenToolActiveRef.current = false;
         };
 
@@ -167,12 +200,23 @@ function CanvasEditor() {
 
         canvas.on('object:moving', () => {
             const { anchors, paths } = state.current;
-            anchors.forEach((pt) => {
+
+            anchors.forEach(pt => {
                 if (pt.dirLineOut && pt.anchor && pt.dirOut) {
-                    pt.dirLineOut.set({ x1: pt.anchor.left, y1: pt.anchor.top, x2: pt.dirOut.left, y2: pt.dirOut.top });
+                    pt.dirLineOut.set({
+                        x1: pt.anchor.left,
+                        y1: pt.anchor.top,
+                        x2: pt.dirOut.left,
+                        y2: pt.dirOut.top
+                    });
                 }
                 if (pt.dirLineIn && pt.anchor && pt.dirIn) {
-                    pt.dirLineIn.set({ x1: pt.anchor.left, y1: pt.anchor.top, x2: pt.dirIn.left, y2: pt.dirIn.top });
+                    pt.dirLineIn.set({
+                        x1: pt.anchor.left,
+                        y1: pt.anchor.top,
+                        x2: pt.dirIn.left,
+                        y2: pt.dirIn.top
+                    });
                 }
             });
 
@@ -181,21 +225,27 @@ function CanvasEditor() {
                 const to = anchors[i + 1];
                 if (!to) return;
 
-                const p = new fabric.Path(
+                const updatedPath = new fabric.Path(
                     `M ${from.anchor.left} ${from.anchor.top} C ${from.dirOut.left} ${from.dirOut.top}, ${to.dirIn.left} ${to.dirIn.top}, ${to.anchor.left} ${to.anchor.top}`,
                     {
-                        stroke: 'purple',
+                        stroke: 'blue',
                         fill: '',
                         selectable: true,
                         evented: true,
+                        hasBorders: false,
+                        hasControls: false,
+                        lockScalingX: true,
+                        lockScalingY: true,
+                        lockRotation: true,
                     }
                 );
-                canvas.remove(path);
-                canvas.add(p);
-                paths[i] = p;
+
+                fabricRef.current.remove(path);
+                fabricRef.current.add(updatedPath);
+                paths[i] = updatedPath;
             });
 
-            canvas.renderAll();
+            fabricRef.current.renderAll();
         });
 
         window.addEventListener('keydown', (e) => {
@@ -218,8 +268,43 @@ function CanvasEditor() {
         });
 
         const handleSelection = (e) => {
+            const canvas = fabricRef.current;
+
             if (e.selected && e.selected.length > 0) {
-                updateToolbar(e.selected[0]);
+                const obj = e.selected[0];
+                updateToolbar(obj);
+
+                if (obj.type === 'path') {
+                    const index = state.current.paths.indexOf(obj);
+                    if (index !== -1) {
+                        const from = state.current.anchors[index];
+                        const to = state.current.anchors[index + 1];
+
+                        // Show start anchor point
+                        if (from) {
+                            from.anchor.set({ visible: true });
+                            from.dirOut?.set({ visible: true });
+                            from.dirLineOut?.set({ visible: true });
+
+                            // Also check and show from.dirIn if it's the FIRST anchor
+                            from.dirIn?.set({ visible: true });
+                            from.dirLineIn?.set({ visible: true });
+                        }
+
+                        // Show end anchor point
+                        if (to) {
+                            to.anchor.set({ visible: true });
+                            to.dirIn?.set({ visible: true });
+                            to.dirLineIn?.set({ visible: true });
+
+                            // Also show to.dirOut if it exists (e.g. in closed paths)
+                            to.dirOut?.set({ visible: true });
+                            to.dirLineOut?.set({ visible: true });
+                        }
+
+                        canvas.renderAll();
+                    }
+                }
             } else {
                 setToolbarPos(null);
                 setSelectedObject(null);
@@ -236,6 +321,16 @@ function CanvasEditor() {
         canvas.on('selection:cleared', () => {
             setToolbarPos(null);
             setSelectedObject(null);
+
+            const { anchors } = state.current;
+            anchors.forEach(pt => {
+                pt.anchor.set({ visible: false });
+                pt.dirIn?.set({ visible: false });
+                pt.dirOut?.set({ visible: false });
+                pt.dirLineIn?.set({ visible: false });
+                pt.dirLineOut?.set({ visible: false });
+            });
+            canvas.renderAll();
         });
         canvas.on('object:moving', handleMove);
 
@@ -389,11 +484,49 @@ function CanvasEditor() {
     };
 
     const deleteSelected = () => {
+        const canvas = fabricRef.current;
         const activeObject = fabricRef.current.getActiveObject();
+
         if (activeObject) {
             fabricRef.current.remove(activeObject);
             setToolbarPos(null);
         }
+
+        const pathIndex = state.current.paths.indexOf(activeObject);
+
+        if (pathIndex !== -1) {
+            const { anchors, paths } = state.current;
+
+            const from = anchors[pathIndex];
+            const to = anchors[pathIndex + 1];
+
+            canvas.remove(paths[pathIndex]);
+
+            if (from) {
+                canvas.remove(from.anchor);
+                if (from.dirOut) canvas.remove(from.dirOut);
+                if (from.dirLineOut) canvas.remove(from.dirLineOut);
+            }
+
+            if (to) {
+                canvas.remove(to.anchor);
+                if (to.dirIn) canvas.remove(to.dirIn);
+                if (to.dirLineIn) canvas.remove(to.dirLineIn);
+            }
+
+            paths.splice(pathIndex, 1);
+            anchors.splice(pathIndex + 1, 1);
+
+            canvas.discardActiveObject();
+            canvas.renderAll();
+            setToolbarPos(null);
+            return;
+        }
+
+        canvas.remove(activeObject);
+        canvas.discardActiveObject();
+        canvas.renderAll();
+        setToolbarPos(null);
     };
 
     const changeColor = (newColor) => {
