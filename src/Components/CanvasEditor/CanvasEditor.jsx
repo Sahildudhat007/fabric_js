@@ -152,7 +152,7 @@ function CanvasEditor() {
 
             canvas.renderAll();
         };
-        
+
         const handleMouseMove = (opt) => {
             if (!isPenToolActiveRef.current) return;
 
