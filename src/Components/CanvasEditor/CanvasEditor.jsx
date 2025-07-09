@@ -139,15 +139,15 @@ function CanvasEditor() {
                         lockRotation: true,
                     }
                 );
-                state.current.paths.push(path);
                 canvas.add(path);
+                state.current.paths.push(path);
 
-                canvas.bringToFront(prev.anchor);
-                canvas.bringToFront(anchor);
-                canvas.bringToFront(dirOut);
-                canvas.bringToFront(dirIn);
                 canvas.bringToFront(lineOut);
                 canvas.bringToFront(lineIn);
+                canvas.bringToFront(dirOut);
+                canvas.bringToFront(dirIn);
+                canvas.bringToFront(prev.anchor);
+                canvas.bringToFront(anchor);
             }
 
             canvas.renderAll();
@@ -183,23 +183,41 @@ function CanvasEditor() {
         };
 
         const finishPath = () => {
-            const { paths, tempLine } = state.current;
-            if (tempLine) fabricRef.current.remove(tempLine);
+            const { paths, tempLine, anchors } = state.current;
+            const canvas = fabricRef.current;
+
+            if (tempLine) canvas.remove(tempLine);
 
             paths.forEach(p => {
                 p.selectable = true;
                 p.evented = true;
             });
 
-            fabricRef.current.renderAll();
+            // Show all anchors and their direction handles after finishing
+            anchors.forEach(pt => {
+                pt.anchor.set({ visible: true });
+                pt.dirIn?.set({ visible: true });
+                pt.dirOut?.set({ visible: true });
+                pt.dirLineIn?.set({ visible: true });
+                pt.dirLineOut?.set({ visible: true });
+            });
+
+            canvas.renderAll();
             isPenToolActiveRef.current = false;
         };
 
         canvas.on('mouse:down', handleMouseDown);
         canvas.on('mouse:move', handleMouseMove);
 
-        canvas.on('object:moving', () => {
+        canvas.on('object:moving', (e) => {
+            const moved = e.target;
             const { anchors, paths } = state.current;
+
+            // Only proceed if the moved object is an anchor or direction point
+            const isAnchor = anchors.some(pt =>
+                pt.anchor === moved || pt.dirIn === moved || pt.dirOut === moved
+            );
+            if (!isAnchor) return;
 
             anchors.forEach(pt => {
                 if (pt.dirLineOut && pt.anchor && pt.dirOut) {
@@ -245,7 +263,7 @@ function CanvasEditor() {
                 paths[i] = updatedPath;
             });
 
-            fabricRef.current.renderAll();
+            canvas.renderAll();
         });
 
         window.addEventListener('keydown', (e) => {
@@ -273,38 +291,42 @@ function CanvasEditor() {
             if (e.selected && e.selected.length > 0) {
                 const obj = e.selected[0];
                 updateToolbar(obj);
+                setSelectedObject(obj);
 
+                // If anchor is selected
+                if (obj && obj.type === 'circle' && obj.radius === 6) {
+                    // This is likely an anchor or handle
+                    obj.set({ stroke: '' }); // Just a test highlight (optional)
+                    canvas.renderAll();
+                }
+
+                // If path is selected, show connected points
                 if (obj.type === 'path') {
                     const index = state.current.paths.indexOf(obj);
                     if (index !== -1) {
                         const from = state.current.anchors[index];
                         const to = state.current.anchors[index + 1];
 
-                        // Show start anchor point
                         if (from) {
                             from.anchor.set({ visible: true });
-                            from.dirOut?.set({ visible: true });
-                            from.dirLineOut?.set({ visible: true });
-
-                            // Also check and show from.dirIn if it's the FIRST anchor
                             from.dirIn?.set({ visible: true });
+                            from.dirOut?.set({ visible: true });
                             from.dirLineIn?.set({ visible: true });
+                            from.dirLineOut?.set({ visible: true });
                         }
 
-                        // Show end anchor point
                         if (to) {
                             to.anchor.set({ visible: true });
                             to.dirIn?.set({ visible: true });
-                            to.dirLineIn?.set({ visible: true });
-
-                            // Also show to.dirOut if it exists (e.g. in closed paths)
                             to.dirOut?.set({ visible: true });
+                            to.dirLineIn?.set({ visible: true });
                             to.dirLineOut?.set({ visible: true });
                         }
 
                         canvas.renderAll();
                     }
                 }
+
             } else {
                 setToolbarPos(null);
                 setSelectedObject(null);
@@ -330,6 +352,7 @@ function CanvasEditor() {
                 pt.dirLineIn?.set({ visible: false });
                 pt.dirLineOut?.set({ visible: false });
             });
+
             canvas.renderAll();
         });
         canvas.on('object:moving', handleMove);
