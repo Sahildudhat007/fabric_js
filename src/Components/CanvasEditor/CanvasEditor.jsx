@@ -193,13 +193,20 @@ function CanvasEditor() {
                 p.evented = true;
             });
 
-            // Show all anchors and their direction handles after finishing
+            // Show all anchors and bring them to front
             anchors.forEach(pt => {
-                pt.anchor.set({ visible: true });
-                pt.dirIn?.set({ visible: true });
-                pt.dirOut?.set({ visible: true });
+                pt.anchor.set({ visible: true, evented: true });
+                pt.dirIn?.set({ visible: true, evented: true });
+                pt.dirOut?.set({ visible: true, evented: true });
                 pt.dirLineIn?.set({ visible: true });
                 pt.dirLineOut?.set({ visible: true });
+
+                // Bring all points and lines above path
+                canvas.bringToFront(pt.dirLineIn);
+                canvas.bringToFront(pt.dirLineOut);
+                canvas.bringToFront(pt.dirIn);
+                canvas.bringToFront(pt.dirOut);
+                canvas.bringToFront(pt.anchor);
             });
 
             canvas.renderAll();
