@@ -8,393 +8,280 @@ function CanvasEditor() {
     const fabricRef = useRef(null);
     const fileInputRef = useRef(null);
     const isPenToolActiveRef = useRef(false);
+    const isDrawingRef = useRef(false);
+    const points = useRef([]);
+    const groupItems = useRef([]);
+    const tempGrayLineRef = useRef(null);
+    const currentPathRef = useRef(null);
+    const pathSegments = useRef([]);
 
     const [toolbarPos, setToolbarPos] = useState(null);
     const [selectedObject, setSelectedObject] = useState(null);
-
-    const state = useRef({
-        anchors: [],
-        paths: [],
-        isDrawing: true,
-        currentLine: null,
-        doubleClickTimer: null,
-        tempLine: null,
-        selectedAnchor: null,
-    });
 
     useEffect(() => {
         const canvas = new fabric.Canvas(canvasRef.current, {
             width: 500,
             height: 500,
-            backgroundColor: "#fff",
+            backgroundColor: '#fff'
         });
         fabricRef.current = canvas;
 
-        const createCircle = (x, y, fill = 'white', stroke = true, visible = false) =>
-            new fabric.Circle({
-                left: x,
-                top: y,
-                radius: 6,
-                fill,
-                stroke: stroke ? 'black' : '',
-                strokeWidth: stroke ? 1 : 0,
-                originX: 'center',
-                originY: 'center',
-                hasControls: false,
-                hasBorders: false,
-                selectable: true,
-                evented: true,
-                visible,
-                hoverCursor: 'pointer',
-            });
-
-        const createLine = (p1, p2, visible = false) =>
-            new fabric.Line([p1.left, p1.top, p2.left, p2.top], {
-                stroke: 'gray',
-                selectable: false,
-                evented: false,
-                visible,
-            });
-
         const handleMouseDown = (opt) => {
             if (!isPenToolActiveRef.current) return;
-
-            const canvas = fabricRef.current;
             const pointer = canvas.getPointer(opt.e);
-            const { anchors, isDrawing } = state.current;
+            const point = { x: pointer.x, y: pointer.y };
 
-            if (!isDrawing) return;
+            if (!isDrawingRef.current) {
+                isDrawingRef.current = true;
+                const anchor = drawAnchor(point);
+                points.current = [{ ...point, anchor }];
+                pathSegments.current = [];
+            } else {
+                const lastPoint = points.current[points.current.length - 1];
 
-            if (state.current.doubleClickTimer) {
-                clearTimeout(state.current.doubleClickTimer);
-                state.current.doubleClickTimer = null;
-                state.current.isDrawing = false;
-                finishPath();
-                return;
+                if (tempGrayLineRef.current) {
+                    canvas.remove(tempGrayLineRef.current);
+                    tempGrayLineRef.current = null;
+                }
+
+                const anchor = drawAnchor(point);
+                const current = { ...point, anchor };
+                const segment = drawBezierCurve(lastPoint, current);
+                pathSegments.current.push(segment);
+                points.current.push(current);
             }
-
-            state.current.doubleClickTimer = setTimeout(() => {
-                state.current.doubleClickTimer = null;
-            }, 300);
-
-            const anchor = createCircle(pointer.x, pointer.y);
-            canvas.add(anchor);
-
-            const anchorData = {
-                anchor,
-                dirIn: null,
-                dirOut: null,
-                dirLineIn: null,
-                dirLineOut: null,
-            };
-
-            anchors.push(anchorData);
-
-            if (anchors.length > 1) {
-                const prev = anchors[anchors.length - 2];
-
-                const dx = pointer.x - prev.anchor.left;
-                const dy = pointer.y - prev.anchor.top;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const offset = 50;
-                const ux = dx / dist;
-                const uy = dy / dist;
-
-                const dirOut = createCircle(
-                    prev.anchor.left + ux * offset,
-                    prev.anchor.top + uy * offset,
-                    'gray', true, true
-                );
-                const dirIn = createCircle(
-                    pointer.x - ux * offset,
-                    pointer.y - uy * offset,
-                    'gray', true, true
-                );
-
-                canvas.add(dirOut, dirIn);
-
-                prev.dirOut = dirOut;
-                anchorData.dirIn = dirIn;
-
-                const lineOut = createLine(prev.anchor, dirOut);
-                const lineIn = createLine(anchor, dirIn);
-
-                canvas.add(lineOut, lineIn);
-
-                prev.dirLineOut = lineOut;
-                anchorData.dirLineIn = lineIn;
-
-                const path = new fabric.Path(
-                    `M ${prev.anchor.left} ${prev.anchor.top} L ${anchor.left} ${anchor.top}`,
-                    {
-                        stroke: 'blue',
-                        fill: '',
-                        selectable: true,
-                        evented: true,
-                        objectCaching: false,
-                        hasBorders: false,
-                        hasControls: false,
-                        lockScalingX: true,
-                        lockScalingY: true,
-                        lockRotation: true,
-                    }
-                );
-                canvas.add(path);
-                state.current.paths.push(path);
-
-                canvas.bringToFront(lineOut);
-                canvas.bringToFront(lineIn);
-                canvas.bringToFront(dirOut);
-                canvas.bringToFront(dirIn);
-                canvas.bringToFront(prev.anchor);
-                canvas.bringToFront(anchor);
-            }
-
-            canvas.renderAll();
         };
 
         const handleMouseMove = (opt) => {
-            if (!isPenToolActiveRef.current) return;
-
-            const canvas = fabricRef.current;
+            if (!isDrawingRef.current || points.current.length === 0) return;
             const pointer = canvas.getPointer(opt.e);
-            const { anchors, isDrawing } = state.current;
+            const lastPoint = points.current[points.current.length - 1];
 
-            if (!isDrawing || anchors.length < 1) return;
+            if (tempGrayLineRef.current) canvas.remove(tempGrayLineRef.current);
 
-            const last = anchors[anchors.length - 1];
-
-            if (last && last.anchor) {
-                if (state.current.tempLine) canvas.remove(state.current.tempLine);
-
-                const preview = new fabric.Line(
-                    [last.anchor.left, last.anchor.top, pointer.x, pointer.y],
-                    {
-                        stroke: 'lightgray',
-                        selectable: false,
-                        evented: false,
-                    }
-                );
-
-                state.current.tempLine = preview;
-                canvas.add(preview);
-                canvas.renderAll();
-            }
+            const tempLine = new fabric.Line([lastPoint.x, lastPoint.y, pointer.x, pointer.y], {
+                stroke: '#94a3b8', strokeWidth: 1, selectable: false, evented: false
+            });
+            canvas.add(tempLine);
+            canvas.bringToFront(tempLine);
+            tempGrayLineRef.current = tempLine;
         };
 
-        const finishPath = () => {
-            const { paths, tempLine, anchors } = state.current;
+        const handleDoubleClick = () => {
             const canvas = fabricRef.current;
 
-            if (tempLine) canvas.remove(tempLine);
+            // Remove the temporary preview gray line (when hovering)
+            if (tempGrayLineRef.current) {
+                canvas.remove(tempGrayLineRef.current);
+                tempGrayLineRef.current = null;
+            }
 
-            paths.forEach(p => {
-                p.selectable = true;
-                p.evented = true;
+            // Remove ONLY the gray directionLine under each Bézier segment
+            pathSegments.current.forEach(segment => {
+                const { directionLine } = segment.customProps;
+                if (directionLine) {
+                    canvas.remove(directionLine);
+                }
             });
 
-            // Show all anchors and bring them to front
-            anchors.forEach(pt => {
-                pt.anchor.set({ visible: true, evented: true });
-                pt.dirIn?.set({ visible: true, evented: true });
-                pt.dirOut?.set({ visible: true, evented: true });
-                pt.dirLineIn?.set({ visible: true });
-                pt.dirLineOut?.set({ visible: true });
+            // Group only the bezier path, anchors, and handles (no need to filter groupItems)
+            if (groupItems.current.length > 0) {
+                const group = new fabric.Group(groupItems.current, {
+                    selectable: true,
+                    evented: true
+                });
+                canvas.add(group);
+                canvas.bringToFront(group);
+            }
 
-                // Bring all points and lines above path
-                canvas.bringToFront(pt.dirLineIn);
-                canvas.bringToFront(pt.dirLineOut);
-                canvas.bringToFront(pt.dirIn);
-                canvas.bringToFront(pt.dirOut);
-                canvas.bringToFront(pt.anchor);
-            });
-
-            canvas.renderAll();
+            // Reset references
+            groupItems.current = [];
+            pathSegments.current = [];
+            currentPathRef.current = null;
+            isDrawingRef.current = false;
             isPenToolActiveRef.current = false;
+            points.current = [];
         };
+
+        canvas.on("selection:created", handleSelection);
+        canvas.on("selection:updated", handleSelection);
+        canvas.on("selection:cleared", () => {
+            setToolbarPos(null);
+            setSelectedObject(null);
+        });
+
+        canvas.on('object:moving', (opt) => {
+            const obj = opt.target;
+
+            // Check if this is a bezier handle
+            if (obj.customType === 'bezier-handle') {
+                const path = obj.associatedPath;
+                const customProps = path.customProps;
+
+                // Get the anchor point for the current handle
+                const anchor = obj.isHandle1 ? customProps.from.anchor : customProps.to.anchor;
+
+                // Update the path
+                const from = customProps.from;
+                const to = customProps.to;
+                const newPath = `M ${from.x} ${from.y} C ${customProps.handle1.left} ${customProps.handle1.top}, ${customProps.handle2.left} ${customProps.handle2.top}, ${to.x} ${to.y}`;
+
+                path.set({ path: new fabric.Path(newPath).path });
+
+                // Update connecting line for this handle
+                const connectingLine = obj.isHandle1 ? customProps.anchorToHandle1 : customProps.anchorToHandle2;
+                connectingLine.set({
+                    x1: anchor.left,
+                    y1: anchor.top,
+                    x2: obj.left,
+                    y2: obj.top
+                });
+
+                // Update direction line
+                customProps.directionLine.set({
+                    x1: from.x,
+                    y1: from.y,
+                    x2: to.x,
+                    y2: to.y
+                });
+
+                canvas.requestRenderAll();
+            }
+
+            // Remove this line as it was calling the unused updatePath function
+            // if (obj.type === 'rect' && obj.angle === 45) updatePath(obj);
+        });
 
         canvas.on('mouse:down', handleMouseDown);
         canvas.on('mouse:move', handleMouseMove);
-
-        canvas.on('object:moving', (e) => {
-            const moved = e.target;
-            const { anchors, paths } = state.current;
-
-            // Only proceed if the moved object is an anchor or direction point
-            const isAnchor = anchors.some(pt =>
-                pt.anchor === moved || pt.dirIn === moved || pt.dirOut === moved
-            );
-            if (!isAnchor) return;
-
-            anchors.forEach(pt => {
-                if (pt.dirLineOut && pt.anchor && pt.dirOut) {
-                    pt.dirLineOut.set({
-                        x1: pt.anchor.left,
-                        y1: pt.anchor.top,
-                        x2: pt.dirOut.left,
-                        y2: pt.dirOut.top
-                    });
-                }
-                if (pt.dirLineIn && pt.anchor && pt.dirIn) {
-                    pt.dirLineIn.set({
-                        x1: pt.anchor.left,
-                        y1: pt.anchor.top,
-                        x2: pt.dirIn.left,
-                        y2: pt.dirIn.top
-                    });
-                }
-            });
-
-            paths.forEach((path, i) => {
-                const from = anchors[i];
-                const to = anchors[i + 1];
-                if (!to) return;
-
-                const updatedPath = new fabric.Path(
-                    `M ${from.anchor.left} ${from.anchor.top} C ${from.dirOut.left} ${from.dirOut.top}, ${to.dirIn.left} ${to.dirIn.top}, ${to.anchor.left} ${to.anchor.top}`,
-                    {
-                        stroke: 'blue',
-                        fill: '',
-                        selectable: true,
-                        evented: true,
-                        hasBorders: false,
-                        hasControls: false,
-                        lockScalingX: true,
-                        lockScalingY: true,
-                        lockRotation: true,
-                    }
-                );
-
-                fabricRef.current.remove(path);
-                fabricRef.current.add(updatedPath);
-                paths[i] = updatedPath;
-            });
-
-            canvas.renderAll();
-        });
-
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                state.current.anchors.forEach((a) => canvas.remove(a.anchor));
-                state.current.paths.forEach((p) => canvas.remove(p));
-                if (state.current.tempLine) canvas.remove(state.current.tempLine);
-                state.current = {
-                    anchors: [],
-                    paths: [],
-                    isDrawing: true,
-                    currentLine: null,
-                    doubleClickTimer: null,
-                    tempLine: null,
-                    selectedAnchor: null,
-                };
-                isPenToolActiveRef.current = false;
-                canvas.renderAll();
-            }
-        });
-
-        const handleSelection = (e) => {
-            const canvas = fabricRef.current;
-
-            if (e.selected && e.selected.length > 0) {
-                const obj = e.selected[0];
-                updateToolbar(obj);
-                setSelectedObject(obj);
-
-                // If anchor is selected
-                if (obj && obj.type === 'circle' && obj.radius === 6) {
-                    // This is likely an anchor or handle
-                    obj.set({ stroke: '' }); // Just a test highlight (optional)
-                    canvas.renderAll();
-                }
-
-                // If path is selected, show connected points
-                if (obj.type === 'path') {
-                    const index = state.current.paths.indexOf(obj);
-                    if (index !== -1) {
-                        const from = state.current.anchors[index];
-                        const to = state.current.anchors[index + 1];
-
-                        if (from) {
-                            from.anchor.set({ visible: true });
-                            from.dirIn?.set({ visible: true });
-                            from.dirOut?.set({ visible: true });
-                            from.dirLineIn?.set({ visible: true });
-                            from.dirLineOut?.set({ visible: true });
-                        }
-
-                        if (to) {
-                            to.anchor.set({ visible: true });
-                            to.dirIn?.set({ visible: true });
-                            to.dirOut?.set({ visible: true });
-                            to.dirLineIn?.set({ visible: true });
-                            to.dirLineOut?.set({ visible: true });
-                        }
-
-                        canvas.renderAll();
-                    }
-                }
-
-            } else {
-                setToolbarPos(null);
-                setSelectedObject(null);
-            }
-        };
-
-        function handleMove(e) {
-            if (e.target === canvas.getActiveObject()) updateToolbar(e.target);
-        }
-
-        // Selection events
-        canvas.on('selection:created', handleSelection);
-        canvas.on('selection:updated', handleSelection);
-        canvas.on('selection:cleared', () => {
-            setToolbarPos(null);
-            setSelectedObject(null);
-
-            const { anchors } = state.current;
-            anchors.forEach(pt => {
-                pt.anchor.set({ visible: false });
-                pt.dirIn?.set({ visible: false });
-                pt.dirOut?.set({ visible: false });
-                pt.dirLineIn?.set({ visible: false });
-                pt.dirLineOut?.set({ visible: false });
-            });
-
-            canvas.renderAll();
-        });
-        canvas.on('object:moving', handleMove);
+        canvas.on('mouse:dblclick', handleDoubleClick);
 
         return () => canvas.dispose();
     }, []);
 
-    const updateToolbar = (obj) => {
-        if (!obj) return;
-        setSelectedObject(obj);
-
-        const bounds = obj.getBoundingRect();
-        const canvasBox = canvasRef.current.getBoundingClientRect();
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-
-        setToolbarPos({
-            top: bounds.top + canvasBox.top + scrollTop - 10,
-            left: bounds.left + canvasBox.left + scrollLeft + bounds.width / 2,
+    const drawAnchor = (point) => {
+        const canvas = fabricRef.current;
+        const anchor = new fabric.Circle({
+            left: point.x, top: point.y, radius: 5,
+            fill: '#fff', stroke: '#3b82f6', strokeWidth: 2,
+            originX: 'center', originY: 'center', selectable: true,
+            hasBorders: false, hasControls: false
         });
+        canvas.add(anchor);
+        canvas.bringToFront(anchor);
+        groupItems.current.push(anchor);
+        return anchor;
+    };
+
+    const drawBezierCurve = (from, to) => {
+        const canvas = fabricRef.current;
+        const dx = to.x - from.x, dy = to.y - from.y;
+        const len = Math.sqrt(dx * dx + dy * dy);
+        const ux = dx / len, uy = dy / len, offset = len * 0.25;
+        const cx1 = from.x + ux * offset, cy1 = from.y + uy * offset;
+        const cx2 = to.x - ux * offset, cy2 = to.y - uy * offset;
+
+        const pathStr = `M ${from.x} ${from.y} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${to.x} ${to.y}`;
+        const bezier = new fabric.Path(pathStr, {
+            stroke: '#60a5fa',
+            strokeWidth: 1,
+            fill: '',
+            selectable: false,
+            evented: false,
+            objectCaching: false
+        });
+
+        // Create handles with custom properties to identify them
+        const handle1 = new fabric.Rect({
+            left: cx1,
+            top: cy1,
+            width: 8,
+            height: 8,
+            fill: '#fff',
+            stroke: '#94a3b8',
+            strokeWidth: 1,
+            angle: 45,
+            originX: 'center',
+            originY: 'center',
+            selectable: true,
+            hasControls: false,
+            customType: 'bezier-handle',
+            associatedPath: bezier,
+            isHandle1: true
+        });
+
+        const handle2 = new fabric.Rect({
+            left: cx2,
+            top: cy2,
+            width: 8,
+            height: 8,
+            fill: '#fff',
+            stroke: '#94a3b8',
+            strokeWidth: 1,
+            angle: 45,
+            originX: 'center',
+            originY: 'center',
+            selectable: true,
+            hasControls: false,
+            customType: 'bezier-handle',
+            associatedPath: bezier,
+            isHandle2: true
+        });
+
+        const directionLine = new fabric.Line([from.x, from.y, to.x, to.y], {
+            stroke: '#94a3b8',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false
+        });
+
+        const anchorToHandle1 = new fabric.Line([from.anchor.left, from.anchor.top, cx1, cy1], {
+            stroke: '#94a3b8',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false
+        });
+
+        const anchorToHandle2 = new fabric.Line([to.anchor.left, to.anchor.top, cx2, cy2], {
+            stroke: '#94a3b8',
+            strokeWidth: 1,
+            selectable: false,
+            evented: false
+        });
+
+        // Store references to all related objects
+        bezier.customProps = {
+            from,
+            to,
+            handle1,
+            handle2,
+            directionLine,
+            anchorToHandle1,
+            anchorToHandle2
+        };
+
+        // Add all objects to canvas
+        canvas.add(bezier, directionLine, handle1, handle2, anchorToHandle1, anchorToHandle2);
+        canvas.bringToFront(handle1);
+        canvas.bringToFront(handle2);
+
+        // Add to group items
+        groupItems.current.push(bezier, directionLine, handle1, handle2, anchorToHandle1, anchorToHandle2);
+
+        // Store the current path
+        currentPathRef.current = bezier;
+
+        return bezier;
     };
 
     const activatePenTool = () => {
         isPenToolActiveRef.current = true;
-        state.current = {
-            anchors: [],
-            paths: [],
-            isDrawing: true,
-            currentLine: null,
-            doubleClickTimer: null,
-            tempLine: null,
-            selectedAnchor: null,
-        };
-        fabricRef.current.discardActiveObject();
-        fabricRef.current.renderAll();
+        isDrawingRef.current = false;
+        points.current = [];
+        pathSegments.current = [];
+        groupItems.current = [];
+        currentPathRef.current = null;
+        tempGrayLineRef.current = null;
     };
 
     const addSquare = () => {
@@ -513,52 +400,6 @@ function CanvasEditor() {
         fileInputRef.current.click();
     };
 
-    const deleteSelected = () => {
-        const canvas = fabricRef.current;
-        const activeObject = fabricRef.current.getActiveObject();
-
-        if (activeObject) {
-            fabricRef.current.remove(activeObject);
-            setToolbarPos(null);
-        }
-
-        const pathIndex = state.current.paths.indexOf(activeObject);
-
-        if (pathIndex !== -1) {
-            const { anchors, paths } = state.current;
-
-            const from = anchors[pathIndex];
-            const to = anchors[pathIndex + 1];
-
-            canvas.remove(paths[pathIndex]);
-
-            if (from) {
-                canvas.remove(from.anchor);
-                if (from.dirOut) canvas.remove(from.dirOut);
-                if (from.dirLineOut) canvas.remove(from.dirLineOut);
-            }
-
-            if (to) {
-                canvas.remove(to.anchor);
-                if (to.dirIn) canvas.remove(to.dirIn);
-                if (to.dirLineIn) canvas.remove(to.dirLineIn);
-            }
-
-            paths.splice(pathIndex, 1);
-            anchors.splice(pathIndex + 1, 1);
-
-            canvas.discardActiveObject();
-            canvas.renderAll();
-            setToolbarPos(null);
-            return;
-        }
-
-        canvas.remove(activeObject);
-        canvas.discardActiveObject();
-        canvas.renderAll();
-        setToolbarPos(null);
-    };
-
     const changeColor = (newColor) => {
         const activeObject = fabricRef.current.getActiveObject();
         if (activeObject && activeObject.set) {
@@ -569,6 +410,21 @@ function CanvasEditor() {
             }
             fabricRef.current.renderAll();
         }
+    };
+
+    const handleSelection = (e) => {
+        const obj = e.selected[0];
+        setSelectedObject(obj);
+
+        // Get canvas coordinates of object
+        const bound = obj.getBoundingRect();
+        const canvasEl = canvasRef.current.getBoundingClientRect();
+
+        // Calculate position of toolbar in screen coords
+        const toolbarX = canvasEl.left + bound.left + bound.width / 2;
+        const toolbarY = canvasEl.top + bound.top - 10; // Slightly above object
+
+        setToolbarPos({ x: toolbarX, y: toolbarY });
     };
 
     const duplicateObject = () => {
@@ -596,9 +452,19 @@ function CanvasEditor() {
         }
     };
 
+    const deleteSelected = () => {
+        const activeObject = fabricRef.current.getActiveObject();
+        if (activeObject) {
+            fabricRef.current.remove(activeObject);
+            setToolbarPos(null);
+            setSelectedObject(null);
+            fabricRef.current.discardActiveObject().requestRenderAll();
+        }
+    };
+
     return (
         <>
-            <div className="flex items-center">
+            <div className="flex items-center relative">
                 <Sidebar
                     onAddSquare={addSquare}
                     onAddRectangle={addRectangle}
@@ -614,7 +480,7 @@ function CanvasEditor() {
                     onAddText={addText}
                     onActivatePenTool={activatePenTool}
                     onUploadImage={uploadImage}
-                    onDelete={deleteSelected}
+                    // onDelete={deleteSelected}
                     onChangeColor={changeColor}
                     onChangeSize={changeSize}
                 />
@@ -630,11 +496,21 @@ function CanvasEditor() {
                 </div>
 
                 {toolbarPos && (
-                    <ShapeToolbar
-                        position={toolbarPos}
-                        onDuplicate={() => duplicateObject()}
-                        onDelete={() => deleteSelected()}
-                    />
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: toolbarPos.x,
+                            top: toolbarPos.y,
+                            transform: 'translate(-50%, -100%)',
+                            zIndex: 1000
+                        }}
+                    >
+                        <ShapeToolbar
+                            position={toolbarPos}
+                            onDuplicate={() => duplicateObject()}
+                            onDelete={() => deleteSelected()}
+                        />
+                    </div>
                 )}
             </div>
         </>

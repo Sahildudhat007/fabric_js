@@ -9,8 +9,8 @@ function App() {
   return (
     <>
       <div className="min-h-screen w-full mx-auto bg-gray-100 p-6">
-        {/* <CanvasEditor /> */}
-        <PenTool />
+        <CanvasEditor />
+        {/* <PenTool /> */}
       </div>
     </>
   )
