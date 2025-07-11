@@ -70,38 +70,61 @@ function CanvasEditor() {
         const handleDoubleClick = () => {
             const canvas = fabricRef.current;
 
-            // Remove the temporary preview gray line (when hovering)
+            // Remove temp preview line
             if (tempGrayLineRef.current) {
                 canvas.remove(tempGrayLineRef.current);
                 tempGrayLineRef.current = null;
             }
 
-            // Remove ONLY the gray directionLine under each Bézier segment
             pathSegments.current.forEach(segment => {
                 const { directionLine } = segment.customProps;
-                if (directionLine) {
-                    canvas.remove(directionLine);
-                }
+                if (directionLine) canvas.remove(directionLine);
             });
 
-            // Group only the bezier path, anchors, and handles (no need to filter groupItems)
-            if (groupItems.current.length > 0) {
-                const group = new fabric.Group(groupItems.current, {
-                    selectable: true,
-                    evented: true
+            const first = points.current[0];
+            const last = points.current[points.current.length - 1];
+            const isClosed = Math.abs(first.x - last.x) < 5 && Math.abs(first.y - last.y) < 5;
+
+            if (points.current.length > 1) {
+                let pathStr = `M ${points.current[0].x} ${points.current[0].y}`;
+                for (let i = 1; i < points.current.length; i++) {
+                    const from = points.current[i - 1];
+                    const to = points.current[i];
+
+                    const dx = to.x - from.x, dy = to.y - from.y;
+                    const len = Math.sqrt(dx * dx + dy * dy);
+                    const ux = dx / len, uy = dy / len;
+                    const offset = len * 0.25;
+                    const cx1 = from.x + ux * offset, cy1 = from.y + uy * offset;
+                    const cx2 = to.x - ux * offset, cy2 = to.y - uy * offset;
+
+                    pathStr += ` C ${cx1} ${cy1}, ${cx2} ${cy2}, ${to.x} ${to.y}`;
+                }
+
+                if (isClosed) {
+                    pathStr += ' Z';
+                }
+
+                const filledPath = new fabric.Path(pathStr, {
+                    fill: isClosed ? '#fcd34d' : '',
+                    stroke: 'transparent', // we already have stroke from segments
+                    selectable: false,
+                    evented: false
                 });
-                canvas.add(group);
-                canvas.bringToFront(group);
+
+                canvas.add(filledPath);
+                canvas.sendToBack(filledPath); // keep it behind anchors/handles
             }
 
-            // Reset references
-            groupItems.current = [];
-            pathSegments.current = [];
-            currentPathRef.current = null;
+            // Do not remove groupItems – keep handles & anchors visible
+
             isDrawingRef.current = false;
             isPenToolActiveRef.current = false;
+            currentPathRef.current = null;
             points.current = [];
         };
+
+
 
         canvas.on("selection:created", handleSelection);
         canvas.on("selection:updated", handleSelection);
@@ -187,7 +210,7 @@ function CanvasEditor() {
             strokeWidth: 1,
             fill: '',
             selectable: false,
-            evented: false,
+            evented: true,
             objectCaching: false
         });
 
@@ -403,7 +426,7 @@ function CanvasEditor() {
     const changeColor = (newColor) => {
         const activeObject = fabricRef.current.getActiveObject();
         if (activeObject && activeObject.set) {
-            if (activeObject.type === "line") {
+            if (activeObject.type === "line" || activeObject.type === "path") {
                 activeObject.set("stroke", newColor);
             } else {
                 activeObject.set("fill", newColor);
@@ -416,15 +439,19 @@ function CanvasEditor() {
         const obj = e.selected[0];
         setSelectedObject(obj);
 
-        // Get canvas coordinates of object
-        const bound = obj.getBoundingRect();
-        const canvasEl = canvasRef.current.getBoundingClientRect();
+        // Show toolbar only if it's the blue bezier path
+        if (obj?.type === 'path' && obj?.customProps) {
+            const bound = obj.getBoundingRect();
+            const canvasEl = canvasRef.current.getBoundingClientRect();
 
-        // Calculate position of toolbar in screen coords
-        const toolbarX = canvasEl.left + bound.left + bound.width / 2;
-        const toolbarY = canvasEl.top + bound.top - 10; // Slightly above object
+            const toolbarX = canvasEl.left + bound.left + bound.width / 2;
+            const toolbarY = canvasEl.top + bound.top - 10;
 
-        setToolbarPos({ x: toolbarX, y: toolbarY });
+            setToolbarPos({ x: toolbarX, y: toolbarY });
+        } else {
+            // Hide toolbar if not path
+            setToolbarPos(null);
+        }
     };
 
     const duplicateObject = () => {
