@@ -27,28 +27,36 @@ function CanvasEditor() {
         fabricRef.current = canvas;
 
         const handleMouseDown = (opt) => {
-            if (!isPenToolActiveRef.current) return;
-            const pointer = canvas.getPointer(opt.e);
-            const point = { x: pointer.x, y: pointer.y };
+            const canvas = fabricRef.current;
 
-            if (!isDrawingRef.current) {
-                isDrawingRef.current = true;
-                const anchor = drawAnchor(point);
-                points.current = [{ ...point, anchor }];
-                pathSegments.current = [];
-            } else {
-                const lastPoint = points.current[points.current.length - 1];
+            // If Pen Tool is active, continue drawing
+            if (isPenToolActiveRef.current) {
+                const pointer = canvas.getPointer(opt.e);
+                const point = { x: pointer.x, y: pointer.y };
 
-                if (tempGrayLineRef.current) {
-                    canvas.remove(tempGrayLineRef.current);
-                    tempGrayLineRef.current = null;
+                if (!isDrawingRef.current) {
+                    isDrawingRef.current = true;
+                    const anchor = drawAnchor(point);
+                    points.current = [{ ...point, anchor }];
+                    pathSegments.current = [];
+                } else {
+                    const lastPoint = points.current[points.current.length - 1];
+
+                    if (tempGrayLineRef.current) {
+                        canvas.remove(tempGrayLineRef.current);
+                        tempGrayLineRef.current = null;
+                    }
+
+                    const anchor = drawAnchor(point);
+                    const current = { ...point, anchor };
+                    const segment = drawBezierCurve(lastPoint, current);
+                    pathSegments.current.push(segment);
+                    points.current.push(current);
                 }
-
-                const anchor = drawAnchor(point);
-                const current = { ...point, anchor };
-                const segment = drawBezierCurve(lastPoint, current);
-                pathSegments.current.push(segment);
-                points.current.push(current);
+            }
+            // If Pen Tool is NOT active, allow selecting Bézier paths by left-click
+            else if (opt.target?.type === 'path' && opt.target?.customProps) {
+                fabricRef.current.setActiveObject(opt.target); // Let Fabric handle selection
             }
         };
 
@@ -76,6 +84,7 @@ function CanvasEditor() {
                 tempGrayLineRef.current = null;
             }
 
+            // Remove gray direction lines
             pathSegments.current.forEach(segment => {
                 const { directionLine } = segment.customProps;
                 if (directionLine) canvas.remove(directionLine);
@@ -116,15 +125,19 @@ function CanvasEditor() {
                 canvas.sendToBack(filledPath); // keep it behind anchors/handles
             }
 
-            // Do not remove groupItems – keep handles & anchors visible
+            // Store the final anchor in last segment’s customProps.to
+            if (points.current.length > 0) {
+                const lastPoint = points.current[points.current.length - 1];
+                if (lastPoint.anchor) {
+                    groupItems.current.push(lastPoint.anchor); // Add final anchor to group
+                }
+            }
 
             isDrawingRef.current = false;
             isPenToolActiveRef.current = false;
             currentPathRef.current = null;
             points.current = [];
         };
-
-
 
         canvas.on("selection:created", handleSelection);
         canvas.on("selection:updated", handleSelection);
@@ -136,24 +149,19 @@ function CanvasEditor() {
         canvas.on('object:moving', (opt) => {
             const obj = opt.target;
 
-            // Check if this is a bezier handle
+            // Move Bézier handles and keep curve updated
             if (obj.customType === 'bezier-handle') {
                 const path = obj.associatedPath;
                 const customProps = path.customProps;
-
-                // Get the anchor point for the current handle
                 const anchor = obj.isHandle1 ? customProps.from.anchor : customProps.to.anchor;
 
-                // Update the path
-                const from = customProps.from;
-                const to = customProps.to;
-                const newPath = `M ${from.x} ${from.y} C ${customProps.handle1.left} ${customProps.handle1.top}, ${customProps.handle2.left} ${customProps.handle2.top}, ${to.x} ${to.y}`;
-
+                // Update the path string
+                const newPath = `M ${customProps.from.x} ${customProps.from.y} C ${customProps.handle1.left} ${customProps.handle1.top}, ${customProps.handle2.left} ${customProps.handle2.top}, ${customProps.to.x} ${customProps.to.y}`;
                 path.set({ path: new fabric.Path(newPath).path });
 
-                // Update connecting line for this handle
-                const connectingLine = obj.isHandle1 ? customProps.anchorToHandle1 : customProps.anchorToHandle2;
-                connectingLine.set({
+                // Update handle line
+                const line = obj.isHandle1 ? customProps.anchorToHandle1 : customProps.anchorToHandle2;
+                line.set({
                     x1: anchor.left,
                     y1: anchor.top,
                     x2: obj.left,
@@ -162,18 +170,85 @@ function CanvasEditor() {
 
                 // Update direction line
                 customProps.directionLine.set({
-                    x1: from.x,
-                    y1: from.y,
-                    x2: to.x,
-                    y2: to.y
+                    x1: customProps.from.x,
+                    y1: customProps.from.y,
+                    x2: customProps.to.x,
+                    y2: customProps.to.y
                 });
 
                 canvas.requestRenderAll();
             }
 
-            // Remove this line as it was calling the unused updatePath function
-            // if (obj.type === 'rect' && obj.angle === 45) updatePath(obj);
+            // If moving entire Bézier path
+            if (obj.type === 'path' && obj.customProps) {
+                const deltaX = obj.left - (obj._prevLeft ?? obj.left);
+                const deltaY = obj.top - (obj._prevTop ?? obj.top);
+
+                obj._prevLeft = obj.left;
+                obj._prevTop = obj.top;
+
+                const {
+                    from,
+                    to,
+                    handle1,
+                    handle2,
+                    directionLine,
+                    anchorToHandle1,
+                    anchorToHandle2
+                } = obj.customProps;
+
+                const moveObj = (o) => {
+                    o.left += deltaX;
+                    o.top += deltaY;
+                    o.setCoords();
+                };
+
+                moveObj(from.anchor);
+                moveObj(to.anchor);
+                moveObj(handle1);
+                moveObj(handle2);
+
+                directionLine.set({
+                    x1: directionLine.x1 + deltaX,
+                    y1: directionLine.y1 + deltaY,
+                    x2: directionLine.x2 + deltaX,
+                    y2: directionLine.y2 + deltaY
+                });
+
+                anchorToHandle1.set({
+                    x1: anchorToHandle1.x1 + deltaX,
+                    y1: anchorToHandle1.y1 + deltaY,
+                    x2: anchorToHandle1.x2 + deltaX,
+                    y2: anchorToHandle1.y2 + deltaY
+                });
+
+                anchorToHandle2.set({
+                    x1: anchorToHandle2.x1 + deltaX,
+                    y1: anchorToHandle2.y1 + deltaY,
+                    x2: anchorToHandle2.x2 + deltaX,
+                    y2: anchorToHandle2.y2 + deltaY
+                });
+
+                // Update point positions
+                from.x += deltaX;
+                from.y += deltaY;
+                to.x += deltaX;
+                to.y += deltaY;
+
+                // Rebuild path
+                const pathStr = `M ${from.x} ${from.y} C ${handle1.left} ${handle1.top}, ${handle2.left} ${handle2.top}, ${to.x} ${to.y}`;
+                obj.set({
+                    path: new fabric.Path(pathStr).path,
+                    left: 0,
+                    top: 0,
+                    selectable: true
+                });
+
+                obj.setCoords();
+                canvas.requestRenderAll();
+            }
         });
+
 
         canvas.on('mouse:down', handleMouseDown);
         canvas.on('mouse:move', handleMouseMove);
@@ -480,12 +555,48 @@ function CanvasEditor() {
     };
 
     const deleteSelected = () => {
-        const activeObject = fabricRef.current.getActiveObject();
+        const canvas = fabricRef.current;
+        const activeObject = canvas.getActiveObject();
+
         if (activeObject) {
-            fabricRef.current.remove(activeObject);
+            // If it's a bezier path with customProps, delete related items too
+            if (activeObject.type === 'path' && activeObject.customProps) {
+                const {
+                    from,
+                    to,
+                    handle1,
+                    handle2,
+                    directionLine,
+                    anchorToHandle1,
+                    anchorToHandle2
+                } = activeObject.customProps;
+
+                // Remove all associated elements from canvas
+                [
+                    from.anchor,
+                    to.anchor,
+                    handle1,
+                    handle2,
+                    directionLine,
+                    anchorToHandle1,
+                    anchorToHandle2,
+                    activeObject // finally remove the path itself
+                ].forEach(obj => {
+                    if (obj) canvas.remove(obj);
+                });
+            } else {
+                // For regular objects, just remove the selected object
+                canvas.remove(activeObject);
+            }
+
+            groupItems.current.forEach(obj => {
+                if (obj && canvas.contains(obj)) canvas.remove(obj);
+            });
+            groupItems.current = [];
+
             setToolbarPos(null);
             setSelectedObject(null);
-            fabricRef.current.discardActiveObject().requestRenderAll();
+            canvas.discardActiveObject().requestRenderAll();
         }
     };
 
