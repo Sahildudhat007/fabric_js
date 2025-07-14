@@ -6,7 +6,7 @@ import ShapeToolbar from '../ShapeEditor/ShapeEditor';
 function CanvasEditor() {
     const canvasRef = useRef(null);
     const fabricRef = useRef(null);
-    const fileInputRef = useRef(null);
+    const fileInputRef = useRef(null);  
     const isPenToolActiveRef = useRef(false);
     const isDrawingRef = useRef(false);
     const points = useRef([]);
@@ -133,6 +133,19 @@ function CanvasEditor() {
                 }
             }
 
+            // After drawing: enable selection for path group only
+            canvas.selection = true;
+            canvas.skipTargetFind = false;
+
+            // Enable selection again
+            canvas.forEachObject(obj => {
+                if (obj.type === 'path' && obj.customProps) {
+                    obj.selectable = true;
+                } else {
+                    obj.selectable = true; // enable normal shape selection if needed
+                }
+            });
+
             isDrawingRef.current = false;
             isPenToolActiveRef.current = false;
             currentPathRef.current = null;
@@ -248,7 +261,6 @@ function CanvasEditor() {
                 canvas.requestRenderAll();
             }
         });
-
 
         canvas.on('mouse:down', handleMouseDown);
         canvas.on('mouse:move', handleMouseMove);
@@ -380,6 +392,19 @@ function CanvasEditor() {
         groupItems.current = [];
         currentPathRef.current = null;
         tempGrayLineRef.current = null;
+
+        const canvas = fabricRef.current;
+
+        // Disable drag selection box
+        canvas.selection = false;
+
+        // Don't allow object selection while drawing
+        canvas.skipTargetFind = true;
+
+        // Disable object selection while drawing
+        canvas.forEachObject(obj => {
+            obj.selectable = false;
+        });
     };
 
     const addSquare = () => {
