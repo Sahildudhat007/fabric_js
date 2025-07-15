@@ -8,7 +8,7 @@ function App() {
 
   return (
     <>
-      <div className="min-h-screen w-full mx-auto bg-gray-100 p-6">
+      <div className="h-screen w-screen mx-auto bg-gray-100 p-6">
         <CanvasEditor />
         {/* <PenTool /> */}
       </div>

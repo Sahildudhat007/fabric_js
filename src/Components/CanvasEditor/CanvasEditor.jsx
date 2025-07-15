@@ -6,7 +6,7 @@ import ShapeToolbar from '../ShapeEditor/ShapeEditor';
 function CanvasEditor() {
     const canvasRef = useRef(null);
     const fabricRef = useRef(null);
-    const fileInputRef = useRef(null);  
+    const fileInputRef = useRef(null);
     const isPenToolActiveRef = useRef(false);
     const isDrawingRef = useRef(false);
     const points = useRef([]);
@@ -14,6 +14,7 @@ function CanvasEditor() {
     const tempGrayLineRef = useRef(null);
     const currentPathRef = useRef(null);
     const pathSegments = useRef([]);
+    const wasDoubleClickRef = useRef(false);
 
     const [toolbarPos, setToolbarPos] = useState(null);
     const [selectedObject, setSelectedObject] = useState(null);
@@ -29,10 +30,16 @@ function CanvasEditor() {
         const handleMouseDown = (opt) => {
             const canvas = fabricRef.current;
 
-            // If Pen Tool is active, continue drawing
             if (isPenToolActiveRef.current) {
                 const pointer = canvas.getPointer(opt.e);
                 const point = { x: pointer.x, y: pointer.y };
+
+                // Prevent anchor + segment if triggered just before double-click
+                if (wasDoubleClickRef.current) return;
+                wasDoubleClickRef.current = true;
+                setTimeout(() => {
+                    wasDoubleClickRef.current = false;
+                }, 300);
 
                 if (!isDrawingRef.current) {
                     isDrawingRef.current = true;
@@ -54,9 +61,8 @@ function CanvasEditor() {
                     points.current.push(current);
                 }
             }
-            // If Pen Tool is NOT active, allow selecting Bézier paths by left-click
             else if (opt.target?.type === 'path' && opt.target?.customProps) {
-                fabricRef.current.setActiveObject(opt.target); // Let Fabric handle selection
+                fabricRef.current.setActiveObject(opt.target);
             }
         };
 
@@ -77,14 +83,13 @@ function CanvasEditor() {
 
         const handleDoubleClick = () => {
             const canvas = fabricRef.current;
+            wasDoubleClickRef.current = true; // prevent extra anchor on double click
 
-            // Remove temp preview line
             if (tempGrayLineRef.current) {
                 canvas.remove(tempGrayLineRef.current);
                 tempGrayLineRef.current = null;
             }
 
-            // Remove gray direction lines
             pathSegments.current.forEach(segment => {
                 const { directionLine } = segment.customProps;
                 if (directionLine) canvas.remove(directionLine);
@@ -95,6 +100,14 @@ function CanvasEditor() {
             const isClosed = Math.abs(first.x - last.x) < 5 && Math.abs(first.y - last.y) < 5;
 
             if (points.current.length > 1) {
+                // If closed, remove the last duplicate point
+                if (isClosed && last !== first) {
+                    if (last.anchor) {
+                        canvas.remove(last.anchor);
+                    }
+                    points.current.pop(); // remove duplicate
+                }
+
                 let pathStr = `M ${points.current[0].x} ${points.current[0].y}`;
                 for (let i = 1; i < points.current.length; i++) {
                     const from = points.current[i - 1];
@@ -116,34 +129,20 @@ function CanvasEditor() {
 
                 const filledPath = new fabric.Path(pathStr, {
                     fill: isClosed ? '#fcd34d' : '',
-                    stroke: 'transparent', // we already have stroke from segments
+                    stroke: 'transparent',
                     selectable: false,
                     evented: false
                 });
 
                 canvas.add(filledPath);
-                canvas.sendToBack(filledPath); // keep it behind anchors/handles
+                canvas.sendToBack(filledPath);
             }
 
-            // Store the final anchor in last segment’s customProps.to
-            if (points.current.length > 0) {
-                const lastPoint = points.current[points.current.length - 1];
-                if (lastPoint.anchor) {
-                    groupItems.current.push(lastPoint.anchor); // Add final anchor to group
-                }
-            }
-
-            // After drawing: enable selection for path group only
             canvas.selection = true;
             canvas.skipTargetFind = false;
 
-            // Enable selection again
             canvas.forEachObject(obj => {
-                if (obj.type === 'path' && obj.customProps) {
-                    obj.selectable = true;
-                } else {
-                    obj.selectable = true; // enable normal shape selection if needed
-                }
+                obj.selectable = true;
             });
 
             isDrawingRef.current = false;
@@ -162,17 +161,12 @@ function CanvasEditor() {
         canvas.on('object:moving', (opt) => {
             const obj = opt.target;
 
-            // Move Bézier handles and keep curve updated
             if (obj.customType === 'bezier-handle') {
                 const path = obj.associatedPath;
                 const customProps = path.customProps;
                 const anchor = obj.isHandle1 ? customProps.from.anchor : customProps.to.anchor;
 
-                // Update the path string
-                const newPath = `M ${customProps.from.x} ${customProps.from.y} C ${customProps.handle1.left} ${customProps.handle1.top}, ${customProps.handle2.left} ${customProps.handle2.top}, ${customProps.to.x} ${customProps.to.y}`;
-                path.set({ path: new fabric.Path(newPath).path });
-
-                // Update handle line
+                // Update handle-to-anchor line
                 const line = obj.isHandle1 ? customProps.anchorToHandle1 : customProps.anchorToHandle2;
                 line.set({
                     x1: anchor.left,
@@ -181,7 +175,10 @@ function CanvasEditor() {
                     y2: obj.top
                 });
 
-                // Update direction line
+                // Update actual path shape
+                const pathStr = `M ${customProps.from.x} ${customProps.from.y} C ${customProps.handle1.left} ${customProps.handle1.top}, ${customProps.handle2.left} ${customProps.handle2.top}, ${customProps.to.x} ${customProps.to.y}`;
+                path.set({ path: new fabric.Path(pathStr).path });
+
                 customProps.directionLine.set({
                     x1: customProps.from.x,
                     y1: customProps.from.y,
@@ -190,74 +187,69 @@ function CanvasEditor() {
                 });
 
                 canvas.requestRenderAll();
+                return;
             }
 
-            // If moving entire Bézier path
             if (obj.type === 'path' && obj.customProps) {
-                const deltaX = obj.left - (obj._prevLeft ?? obj.left);
-                const deltaY = obj.top - (obj._prevTop ?? obj.top);
-
-                obj._prevLeft = obj.left;
-                obj._prevTop = obj.top;
-
                 const {
-                    from,
-                    to,
-                    handle1,
-                    handle2,
+                    from, to,
+                    handle1, handle2,
                     directionLine,
-                    anchorToHandle1,
-                    anchorToHandle2
+                    anchorToHandle1, anchorToHandle2
                 } = obj.customProps;
 
-                const moveObj = (o) => {
-                    o.left += deltaX;
-                    o.top += deltaY;
-                    o.setCoords();
+                // Calculate movement delta based on pointer offset
+                const pointer = fabricRef.current.getPointer(opt.e);
+                const deltaX = pointer.x - (obj.prevX || pointer.x);
+                const deltaY = pointer.y - (obj.prevY || pointer.y);
+                obj.prevX = pointer.x;
+                obj.prevY = pointer.y;
+
+                // Move all related elements
+                const moveItem = (item) => {
+                    item.left += deltaX;
+                    item.top += deltaY;
+                    item.setCoords();
                 };
 
-                moveObj(from.anchor);
-                moveObj(to.anchor);
-                moveObj(handle1);
-                moveObj(handle2);
+                moveItem(from.anchor);
+                moveItem(to.anchor);
+                moveItem(handle1);
+                moveItem(handle2);
 
-                directionLine.set({
-                    x1: directionLine.x1 + deltaX,
-                    y1: directionLine.y1 + deltaY,
-                    x2: directionLine.x2 + deltaX,
-                    y2: directionLine.y2 + deltaY
-                });
-
+                // Update control line positions
                 anchorToHandle1.set({
-                    x1: anchorToHandle1.x1 + deltaX,
-                    y1: anchorToHandle1.y1 + deltaY,
-                    x2: anchorToHandle1.x2 + deltaX,
-                    y2: anchorToHandle1.y2 + deltaY
+                    x1: from.anchor.left,
+                    y1: from.anchor.top,
+                    x2: handle1.left,
+                    y2: handle1.top
                 });
 
                 anchorToHandle2.set({
-                    x1: anchorToHandle2.x1 + deltaX,
-                    y1: anchorToHandle2.y1 + deltaY,
-                    x2: anchorToHandle2.x2 + deltaX,
-                    y2: anchorToHandle2.y2 + deltaY
+                    x1: to.anchor.left,
+                    y1: to.anchor.top,
+                    x2: handle2.left,
+                    y2: handle2.top
                 });
 
-                // Update point positions
-                from.x += deltaX;
-                from.y += deltaY;
-                to.x += deltaX;
-                to.y += deltaY;
+                directionLine.set({
+                    x1: from.anchor.left,
+                    y1: from.anchor.top,
+                    x2: to.anchor.left,
+                    y2: to.anchor.top
+                });
 
-                // Rebuild path
+                // Update anchor absolute positions
+                from.x = from.anchor.left;
+                from.y = from.anchor.top;
+                to.x = to.anchor.left;
+                to.y = to.anchor.top;
+
+                // Reconstruct the path string
                 const pathStr = `M ${from.x} ${from.y} C ${handle1.left} ${handle1.top}, ${handle2.left} ${handle2.top}, ${to.x} ${to.y}`;
-                obj.set({
-                    path: new fabric.Path(pathStr).path,
-                    left: 0,
-                    top: 0,
-                    selectable: true
-                });
-
+                obj.set({ path: new fabric.Path(pathStr).path });
                 obj.setCoords();
+
                 canvas.requestRenderAll();
             }
         });

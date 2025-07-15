@@ -5,11 +5,7 @@ function ShapeEditor({ position, onDuplicate, onDelete }) {
         <>
             <div
                 className="fixed bg-white p-3 rounded-md shadow-md border border-gray-100 flex space-x-2 py-2"
-                style={{
-                    top: `${position.top - 30}px`,
-                    left: `${position.left}px`,
-                    transform: 'translate(-50%, -120%)',
-                }}
+                style={{ top: `${position.top - 30}px`, left: `${position.left}px`, transform: 'translate(-50%, -120%)', }}
             >
                 <button onClick={onDuplicate} title="Duplicate" className="hover:bg-gray-200 p-1 rounded-md cursor-pointer">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
