@@ -16,6 +16,9 @@ function CanvasEditor() {
     const currentPathRef = useRef(null);
     const diamondGroupRefs = useRef([]);
     const lastDrawnLineRef = useRef(null);
+    const undoStack = useRef([]);
+    const redoStack = useRef([]);
+    const allAnchors = useRef([]);
 
     const [toolbarPos, setToolbarPos] = useState(null);
     const [selectedObject, setSelectedObject] = useState(null);
@@ -34,14 +37,21 @@ function CanvasEditor() {
             const point = { x: pointer.x, y: pointer.y };
             const target = opt.target;
 
+            // Hide all diamond handles and direction lines when clicking on canvas
+            // if (!target) {
+            //     clearDiamondHandles();
+            // }
+
             // Prevent drawing if:
             // 1. Pen tool is not active
             // 2. It was a double click
             // 3. The target is a pen-line (we'll handle this separately)
             // 4. Any other target is clicked
-            if (!isPenToolActiveRef.current || wasDoubleClickRef.current || target) {
+            if (!isPenToolActiveRef.current || wasDoubleClickRef.current || (target && target.customType !== 'pen-line')) {
                 return;
             }
+
+            saveState();
 
             const anchor = drawAnchor(point);
             const newPoint = { ...point, anchor };
@@ -53,15 +63,12 @@ function CanvasEditor() {
 
                 // Avoid drawing duplicate line if already created between same points
                 const existing = lastDrawnLineRef.current;
-                if (
-                    existing &&
-                    existing.customProps &&
+                if (existing && existing.customProps &&
                     existing.customProps.from.x === from.x &&
                     existing.customProps.from.y === from.y &&
                     existing.customProps.to.x === point.x &&
-                    existing.customProps.to.y === point.y
-                ) {
-                    return; // Skip drawing duplicate
+                    existing.customProps.to.y === point.y) {
+                    return;
                 }
 
                 const tempLine = new fabric.Line([from.x, from.y, point.x, point.y], {
@@ -86,6 +93,55 @@ function CanvasEditor() {
                 canvas.remove(tempGrayLineRef.current);
                 tempGrayLineRef.current = null;
             }
+        };
+
+        // const clearDiamondHandles = () => {
+        //     const canvas = fabricRef.current;
+        //     // Remove any existing diamond handles and direction lines
+        //     canvas.getObjects().forEach(obj => {
+        //         if (obj.customType === 'diamond' ||
+        //             obj.customType === 'bezier-handle' ||
+        //             obj.customType === 'handleLine') {
+        //             canvas.remove(obj);
+        //         }
+        //     });
+        //     diamondGroupRefs.current = [];
+        // };
+
+        const clearAllBezierControls = () => {
+            const canvas = fabricRef.current;
+            // Remove all bezier controls (handles, lines, and anchors)
+            canvas.getObjects().forEach(obj => {
+                if (obj.customType === 'bezier-handle' ||
+                    obj.customType === 'handleLine' ||
+                    obj.customType === 'anchor') {
+                    canvas.remove(obj);
+                }
+            });
+            diamondGroupRefs.current = [];
+            allAnchors.current = [];
+        };
+
+        const drawAnchor = (point) => {
+            const canvas = fabricRef.current;
+            const anchor = new fabric.Circle({
+                left: point.x,
+                top: point.y,
+                radius: 5,
+                fill: '#fff',
+                stroke: '#3b82f6',
+                strokeWidth: 1,
+                originX: 'center',
+                originY: 'center',
+                selectable: true,
+                hasBorders: false,
+                hasControls: false,
+                customType: 'anchor',
+            });
+            canvas.add(anchor);
+            canvas.bringToFront(anchor);
+            allAnchors.current.push(anchor);
+            return anchor;
         };
 
         const handleMouseMove = (opt) => {
@@ -120,6 +176,7 @@ function CanvasEditor() {
         };
 
         const handleDoubleClick = () => {
+            saveState();
             const canvas = fabricRef.current;
             wasDoubleClickRef.current = true;
 
@@ -129,9 +186,11 @@ function CanvasEditor() {
             }
 
             // 🧼 Remove any existing diamond handles
-            canvas.getObjects().forEach(obj => {
-                if (obj.customType === 'diamond') canvas.remove(obj);
-            });
+            // canvas.getObjects().forEach(obj => {
+            //     if (obj.customType === 'diamond') canvas.remove(obj);
+            // });
+
+            clearAllBezierControls();
 
             canvas.selection = true;
             canvas.skipTargetFind = false;
@@ -347,37 +406,58 @@ function CanvasEditor() {
             const canvas = fabricRef.current;
 
             if (target && target.customType === 'pen-line') {
-                // Prevent duplicate path on second click
-                if (target.hasPath) return;
-                target.hasPath = true;
+                saveState();
 
-                // Clean up old diamonds, paths, and lines
-                diamondGroupRefs.current.forEach(({ diamond, line }) => {
-                    canvas.remove(diamond);
-                    canvas.remove(line);
-                });
-                diamondGroupRefs.current = [];
+                // First check if this line already has a path
+                if (target.hasPath) {
+                    // If it has a path, just select it and show controls
+                    const existingPath = canvas.getObjects().find(obj =>
+                        obj.customType === 'pen-path' &&
+                        obj.customProps.from.x === target.customProps.from.x &&
+                        obj.customProps.from.y === target.customProps.from.y &&
+                        obj.customProps.to.x === target.customProps.to.x &&
+                        obj.customProps.to.y === target.customProps.to.y
+                    );
+
+                    if (existingPath) {
+                        // Clear any existing controls first
+                        clearAllBezierControls();
+
+                        // Get the existing path's properties
+                        const props = existingPath.customProps;
+
+                        // Make sure anchors are visible
+                        if (props.from.anchor) props.from.anchor.set({ visible: true });
+                        if (props.to.anchor) props.to.anchor.set({ visible: true });
+
+                        // Re-add all elements to canvas
+                        canvas.add(props.handle1, props.handle2,
+                            props.anchorToHandle1, props.anchorToHandle2);
+                        canvas.bringToFront(props.handle1);
+                        canvas.bringToFront(props.handle2);
+
+                        // Store references
+                        diamondGroupRefs.current = [
+                            { diamond: props.handle1, line: props.anchorToHandle1 },
+                            { diamond: props.handle2, line: props.anchorToHandle2 }
+                        ];
+
+                        return;
+                    }
+                }
+
+                // If no existing path, create new one
+                target.hasPath = true;
+                clearAllBezierControls();
 
                 const { from, to } = target.customProps;
-
-                // Remove the temporary lightblue line
                 canvas.remove(target);
 
-                // Check if anchors already exist for these points
-                let startAnchor = from.anchor;
-                let endAnchor = to.anchor;
+                const startAnchor = drawAnchor(from);
+                const endAnchor = drawAnchor(to);
+                from.anchor = startAnchor;
+                to.anchor = endAnchor;
 
-                // If anchors don't exist, create them
-                if (!startAnchor) {
-                    startAnchor = drawAnchor(from);
-                    from.anchor = startAnchor;
-                }
-                if (!endAnchor) {
-                    endAnchor = drawAnchor(to);
-                    to.anchor = endAnchor;
-                }
-
-                // Rest of your existing code for creating the bezier path...
                 const quarterX = from.x + (to.x - from.x) * 0.25;
                 const quarterY = from.y + (to.y - from.y) * 0.25;
                 const threeQuarterX = from.x + (to.x - from.x) * 0.75;
@@ -478,7 +558,6 @@ function CanvasEditor() {
                 canvas.bringToFront(diamond1);
                 canvas.bringToFront(diamond2);
 
-                // Store diamonds for cleanup
                 diamondGroupRefs.current.push({ diamond: diamond1, line: line1 });
                 diamondGroupRefs.current.push({ diamond: diamond2, line: line2 });
             }
@@ -491,26 +570,26 @@ function CanvasEditor() {
         return () => canvas.dispose();
     }, []);
 
-    const drawAnchor = (point) => {
-        const canvas = fabricRef.current;
-        const anchor = new fabric.Circle({
-            left: point.x,
-            top: point.y,
-            radius: 5,
-            fill: '#fff',
-            stroke: '#3b82f6',
-            strokeWidth: 1,
-            originX: 'center',
-            originY: 'center',
-            selectable: true,
-            hasBorders: false,
-            hasControls: false,
-            customType: 'anchor',
-        });
-        canvas.add(anchor);
-        canvas.bringToFront(anchor);
-        return anchor;
-    };
+    // const drawAnchor = (point) => {
+    //     const canvas = fabricRef.current;
+    //     const anchor = new fabric.Circle({
+    //         left: point.x,
+    //         top: point.y,
+    //         radius: 5,
+    //         fill: '#fff',
+    //         stroke: '#3b82f6',
+    //         strokeWidth: 1,
+    //         originX: 'center',
+    //         originY: 'center',
+    //         selectable: true,
+    //         hasBorders: false,
+    //         hasControls: false,
+    //         customType: 'anchor',
+    //     });
+    //     canvas.add(anchor);
+    //     canvas.bringToFront(anchor);
+    //     return anchor;
+    // };
 
     const activatePenTool = () => {
         const canvas = fabricRef.current;
@@ -525,6 +604,17 @@ function CanvasEditor() {
             lastDrawnLineRef.current = null;
         }
 
+        // Clear all diamond handles and anchors when activating pen tool
+        // canvas.getObjects().forEach(obj => {
+        //     if (obj.customType === 'diamond' ||
+        //         obj.customType === 'bezier-handle' ||
+        //         obj.customType === 'handleLine' ||
+        //         obj.customType === 'anchor') {
+        //         canvas.remove(obj);
+        //     }
+        // });
+        // diamondGroupRefs.current = [];
+
         isPenToolActiveRef.current = true;
         isDrawingRef.current = false;
         points.current = [];
@@ -538,32 +628,73 @@ function CanvasEditor() {
         });
     };
 
+    const saveState = () => {
+        const canvas = fabricRef.current;
+        if (!canvas) return;
+
+        const json = canvas.toDatalessJSON(['customType', 'customProps', 'associatedPath']);
+        undoStack.current.push(json);
+        redoStack.current = []; // clear redo stack when new action is done
+    };
+
+    const undo = () => {
+        const canvas = fabricRef.current;
+        if (undoStack.current.length === 0) return;
+
+        const currentState = canvas.toDatalessJSON(['customType', 'customProps', 'associatedPath']);
+        redoStack.current.push(currentState);
+
+        const prevState = undoStack.current.pop();
+        canvas.loadFromJSON(prevState, () => {
+            canvas.renderAll();
+        });
+    };
+
+    const redo = () => {
+        const canvas = fabricRef.current;
+        if (redoStack.current.length === 0) return;
+
+        const currentState = canvas.toDatalessJSON(['customType', 'customProps', 'associatedPath']);
+        undoStack.current.push(currentState);
+
+        const nextState = redoStack.current.pop();
+        canvas.loadFromJSON(nextState, () => {
+            canvas.renderAll();
+        });
+    };
+
     const addSquare = () => {
+        saveState();
         const square = new fabric.Rect({ left: 190, top: 140, width: 100, height: 100, fill: "black", });
         fabricRef.current.add(square);
     };
 
     const addRectangle = () => {
+        saveState();
         const rect = new fabric.Rect({ left: 190, top: 140, width: 120, height: 80, rx: 6, ry: 6, fill: "black", });
         fabricRef.current.add(rect);
     };
 
     const addTriangle = () => {
+        saveState();
         const triangle = new fabric.Triangle({ left: 190, top: 140, width: 100, height: 100, fill: "black", });
         fabricRef.current.add(triangle);
     };
 
     const addCircle = () => {
+        saveState();
         const circle = new fabric.Circle({ left: 190, top: 140, width: 150, height: 150, radius: 50, fill: "black", });
         fabricRef.current.add(circle);
     };
 
     const addLine = () => {
+        saveState();
         const line = new fabric.Line([500, 100, 650, 100], { left: 190, top: 140, stroke: 'black', strokeWidth: 2, });
         fabricRef.current.add(line);
     };
 
     const addPentagon = () => {
+        saveState();
         const pentagon = new fabric.Polygon([
             { x: 50, y: 0 }, { x: 100, y: 38 }, { x: 82, y: 95 }, { x: 18, y: 95 }, { x: 0, y: 38 }
         ], {
@@ -576,6 +707,7 @@ function CanvasEditor() {
     }
 
     const addHexagon = () => {
+        saveState();
         const hexagon = new fabric.Polygon([
             { x: 50, y: 0 }, { x: 100, y: 25 }, { x: 100, y: 75 }, { x: 50, y: 100 }, { x: 0, y: 75 }, { x: 0, y: 25 }
         ], {
@@ -588,6 +720,7 @@ function CanvasEditor() {
     }
 
     const addRoundedOctagon = () => {
+        saveState();
         const roundedoctagon = new fabric.Polygon([
             { x: 10, y: 30 }, { x: 30, y: 10 }, { x: 70, y: 10 }, { x: 90, y: 30 }, { x: 90, y: 70 }, { x: 70, y: 90 }, { x: 30, y: 90 }, { x: 10, y: 70 }
         ], {
@@ -601,6 +734,7 @@ function CanvasEditor() {
     }
 
     const addDiamondStar = () => {
+        saveState();
         const diamondstar = new fabric.Polygon([
             { x: 40, y: 0 }, { x: 55, y: 30 }, { x: 80, y: 40 }, { x: 55, y: 50 }, { x: 40, y: 80 }, { x: 25, y: 50 }, { x: 0, y: 40 }, { x: 25, y: 30 }
         ], {
@@ -614,6 +748,7 @@ function CanvasEditor() {
     }
 
     const addStar = () => {
+        saveState();
         const star = new fabric.Polygon([
             { x: 40, y: 0 }, { x: 48, y: 28 }, { x: 80, y: 30 }, { x: 55, y: 50 }, { x: 65, y: 80 }, { x: 40, y: 62 }, { x: 15, y: 80 }, { x: 25, y: 50 }, { x: 0, y: 30 }, { x: 32, y: 28 }
         ], {
@@ -627,11 +762,13 @@ function CanvasEditor() {
     }
 
     const addText = () => {
+        saveState();
         const text = new fabric.IText("Edit me", { left: 190, top: 140, fontSize: 24, fill: "black", });
         fabricRef.current.add(text);
     };
 
     const handleFileChange = (e) => {
+        saveState();
         const file = e.target.files[0];
         if (!file) return;
 
@@ -651,10 +788,12 @@ function CanvasEditor() {
     };
 
     const uploadImage = () => {
+        saveState();
         fileInputRef.current.click();
     };
 
     const changeColor = (newColor) => {
+        saveState();
         const activeObject = fabricRef.current.getActiveObject();
         if (activeObject && activeObject.set) {
             if (activeObject.type === "line" || activeObject.type === "path") {
@@ -686,6 +825,7 @@ function CanvasEditor() {
     };
 
     const duplicateObject = () => {
+        saveState();
         if (selectedObject) {
             selectedObject.clone((cloned) => {
                 cloned.left += 20;
@@ -698,6 +838,7 @@ function CanvasEditor() {
     };
 
     const changeSize = (newWidth, newHeight) => {
+        saveState();
         const activeObject = fabricRef.current.getActiveObject();
         if (activeObject && activeObject.set && activeObject.type !== "line") {
             activeObject.set({
@@ -711,6 +852,7 @@ function CanvasEditor() {
     };
 
     const deleteSelected = () => {
+        saveState();
         const canvas = fabricRef.current;
         const activeObject = canvas.getActiveObject();
 
@@ -769,14 +911,15 @@ function CanvasEditor() {
                     onAddRoundedOctagon={addRoundedOctagon}
                     onAddDiamondStar={addDiamondStar}
                     onAddStar={addStar}
-
                     onAddLine={addLine}
                     onAddText={addText}
                     onActivatePenTool={activatePenTool}
                     onUploadImage={uploadImage}
-                    // onDelete={deleteSelected}
+                    onDelete={deleteSelected}
                     onChangeColor={changeColor}
                     onChangeSize={changeSize}
+                    onUndo={undo}
+                    onRedo={redo}
                 />
                 <div className="flex-grow flex justify-center items-center p-4">
                     <canvas ref={canvasRef} className="border border-gray-300 shadow-md" />

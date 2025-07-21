@@ -6,9 +6,10 @@ import { TfiLayoutLineSolid } from "react-icons/tfi";
 import { RxText } from "react-icons/rx";
 import { IoCloudUploadOutline } from "react-icons/io5";
 import { CiPen } from "react-icons/ci";
+import { LuUndo, LuRedo } from "react-icons/lu";
 
 function Sidebar({
-    onAddSquare, onAddRectangle, onAddTriangle, onAddCircle, onAddPentagon, onAddHexagon, onAddRoundedOctagon, onAddDiamondStar, onAddStar, onAddLine, onAddText, onUploadImage, onChangeColor, onChangeSize, onActivatePenTool,
+    onAddSquare, onAddRectangle, onAddTriangle, onAddCircle, onAddPentagon, onAddHexagon, onAddRoundedOctagon, onAddDiamondStar, onAddStar, onAddLine, onAddText, onUploadImage, onChangeColor, onChangeSize, onActivatePenTool, onUndo, onRedo
 }) {
 
     const [showShapes, setShowShapes] = useState(false);
@@ -49,6 +50,16 @@ function Sidebar({
                 <button onClick={() => { onActivatePenTool(); setActiveTool("pen"); }}
                     className={`cursor-pointer hover:bg-gray-200 flex justify-center items-center rounded-md w-10 h-10 text-2xl ${activeTool === "pen" ? "bg-gray-200" : ""}`}>
                     <CiPen />
+                </button>
+
+                <button onClick={() => { onUndo(); setActiveTool("undo"); }}
+                    className={`cursor-pointer hover:bg-gray-200 flex justify-center items-center rounded-md w-10 h-10 text-2xl ${activeTool === "undo" ? "bg-gray-200" : ""}`}>
+                    <LuUndo />
+                </button>
+
+                <button onClick={() => { onRedo(); setActiveTool("redo"); }}
+                    className={`cursor-pointer hover:bg-gray-200 flex justify-center items-center rounded-md w-10 h-10 text-2xl ${activeTool === "redo" ? "bg-gray-200" : ""}`}>
+                    <LuRedo />
                 </button>
 
                 <div>
