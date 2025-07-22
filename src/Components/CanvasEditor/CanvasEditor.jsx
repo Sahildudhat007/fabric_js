@@ -10,15 +10,13 @@ function CanvasEditor() {
     const isPenToolActiveRef = useRef(false);
     const isDrawingRef = useRef(false);
     const points = useRef([]);
-    const groupItems = useRef([]);
     const tempGrayLineRef = useRef(null);
     const wasDoubleClickRef = useRef(false);
-    const currentPathRef = useRef(null);
-    const diamondGroupRefs = useRef([]);
     const lastDrawnLineRef = useRef(null);
     const undoStack = useRef([]);
     const redoStack = useRef([]);
     const allAnchors = useRef([]);
+    const diamondGroupRefs = useRef([]);
 
     const [toolbarPos, setToolbarPos] = useState(null);
     const [selectedObject, setSelectedObject] = useState(null);
@@ -36,11 +34,6 @@ function CanvasEditor() {
             const pointer = canvas.getPointer(opt.e);
             const point = { x: pointer.x, y: pointer.y };
             const target = opt.target;
-
-            // Hide all diamond handles and direction lines when clicking on canvas
-            // if (!target) {
-            //     clearDiamondHandles();
-            // }
 
             // Prevent drawing if:
             // 1. Pen tool is not active
@@ -95,19 +88,6 @@ function CanvasEditor() {
             }
         };
 
-        // const clearDiamondHandles = () => {
-        //     const canvas = fabricRef.current;
-        //     // Remove any existing diamond handles and direction lines
-        //     canvas.getObjects().forEach(obj => {
-        //         if (obj.customType === 'diamond' ||
-        //             obj.customType === 'bezier-handle' ||
-        //             obj.customType === 'handleLine') {
-        //             canvas.remove(obj);
-        //         }
-        //     });
-        //     diamondGroupRefs.current = [];
-        // };
-
         const clearAllBezierControls = () => {
             const canvas = fabricRef.current;
             // Remove all bezier controls (handles, lines, and anchors)
@@ -125,17 +105,10 @@ function CanvasEditor() {
         const drawAnchor = (point) => {
             const canvas = fabricRef.current;
             const anchor = new fabric.Circle({
-                left: point.x,
-                top: point.y,
-                radius: 5,
-                fill: '#fff',
-                stroke: '#3b82f6',
-                strokeWidth: 1,
-                originX: 'center',
-                originY: 'center',
-                selectable: true,
-                hasBorders: false,
-                hasControls: false,
+                left: point.x, top: point.y,
+                radius: 5, fill: '#fff', stroke: '#3b82f6', strokeWidth: 1,
+                originX: 'center', originY: 'center',
+                selectable: true, hasBorders: false, hasControls: false,
                 customType: 'anchor',
             });
             canvas.add(anchor);
@@ -185,11 +158,6 @@ function CanvasEditor() {
                 tempGrayLineRef.current = null;
             }
 
-            // 🧼 Remove any existing diamond handles
-            // canvas.getObjects().forEach(obj => {
-            //     if (obj.customType === 'diamond') canvas.remove(obj);
-            // });
-
             clearAllBezierControls();
 
             canvas.selection = true;
@@ -201,7 +169,6 @@ function CanvasEditor() {
 
             isDrawingRef.current = false;
             isPenToolActiveRef.current = false;
-            currentPathRef.current = null;
         };
 
         canvas.on("selection:created", handleSelection);
@@ -237,7 +204,7 @@ function CanvasEditor() {
                     y2: h2.top,
                 });
 
-                // ✅ Rebuild path (do not recreate, just update path array directly)
+                // Rebuild path (do not recreate, just update path array directly)
                 const newPathString = `M ${props.from.x} ${props.from.y} C ${h1.left} ${h1.top}, ${h2.left} ${h2.top}, ${props.to.x} ${props.to.y}`;
                 const updated = new fabric.Path(newPathString);
 
@@ -321,15 +288,11 @@ function CanvasEditor() {
                         });
                     }
                 });
-
                 canvas.requestRenderAll();
             }
             else if (obj.customType === 'anchor') {
                 // Find all lines connected to this anchor
                 const allObjects = canvas.getObjects();
-
-                // Update position of the anchor
-                // from = { x: obj.left, y: obj.top };
 
                 // Update connected lines
                 allObjects.forEach(otherObj => {
@@ -396,52 +359,69 @@ function CanvasEditor() {
                         }
                     }
                 });
-
                 canvas.requestRenderAll();
             }
         });
 
         canvas.on('mouse:down', function (opt) {
             const target = opt.target;
-            const canvas = fabricRef.current;
 
             if (target && target.customType === 'pen-line') {
                 saveState();
+                const canvas = fabricRef.current;
 
                 // First check if this line already has a path
                 if (target.hasPath) {
-                    // If it has a path, just select it and show controls
+                    // Find the existing path using 'from' and 'to'
                     const existingPath = canvas.getObjects().find(obj =>
                         obj.customType === 'pen-path' &&
+                        obj.customProps &&
+                        obj.customProps.from &&
+                        obj.customProps.to &&
                         obj.customProps.from.x === target.customProps.from.x &&
                         obj.customProps.from.y === target.customProps.from.y &&
                         obj.customProps.to.x === target.customProps.to.x &&
                         obj.customProps.to.y === target.customProps.to.y
                     );
 
-                    if (existingPath) {
-                        // Clear any existing controls first
-                        clearAllBezierControls();
-
-                        // Get the existing path's properties
+                    if (existingPath && existingPath.customProps) {
                         const props = existingPath.customProps;
 
-                        // Make sure anchors are visible
-                        if (props.from.anchor) props.from.anchor.set({ visible: true });
-                        if (props.to.anchor) props.to.anchor.set({ visible: true });
+                        // Re-add each anchor if it exists
+                        if (props.from.anchor) {
+                            props.from.anchor.set({ visible: true, evented: true });
+                            canvas.add(props.from.anchor);
+                        }
+                        if (props.to.anchor) {
+                            props.to.anchor.set({ visible: true, evented: true });
+                            canvas.add(props.to.anchor);
+                        }
 
-                        // Re-add all elements to canvas
-                        canvas.add(props.handle1, props.handle2,
-                            props.anchorToHandle1, props.anchorToHandle2);
+                        // Re-add handle diamonds and connecting gray lines
+                        props.handle1.set({ visible: true, evented: true });
+                        props.handle2.set({ visible: true, evented: true });
+                        props.anchorToHandle1.set({ visible: true, evented: false });
+                        props.anchorToHandle2.set({ visible: true, evented: false });
+
+                        canvas.add(props.handle1);
+                        canvas.add(props.handle2);
+                        canvas.add(props.anchorToHandle1);
+                        canvas.add(props.anchorToHandle2);
+
+                        // Re-add path (blue line)
+                        canvas.add(existingPath);
+
+                        // Bring handles to front
                         canvas.bringToFront(props.handle1);
                         canvas.bringToFront(props.handle2);
 
-                        // Store references
+                        // Update refs
                         diamondGroupRefs.current = [
                             { diamond: props.handle1, line: props.anchorToHandle1 },
                             { diamond: props.handle2, line: props.anchorToHandle2 }
                         ];
 
+                        canvas.requestRenderAll();
                         return;
                     }
                 }
@@ -464,45 +444,25 @@ function CanvasEditor() {
                 const threeQuarterY = from.y + (to.y - from.y) * 0.75;
 
                 const diamond1 = new fabric.Rect({
-                    left: quarterX,
-                    top: quarterY,
-                    width: 9,
-                    height: 9,
-                    fill: '#fff',
-                    stroke: 'gray',
-                    strokeWidth: 1,
-                    originX: 'center',
-                    originY: 'center',
-                    angle: 45,
-                    rx: 2,
-                    ry: 2,
-                    selectable: true,
-                    evented: true,
-                    hasControls: false,
-                    hasBorders: false,
-                    customType: 'bezier-handle',
-                    handleIndex: 1
+                    left: quarterX, top: quarterY,
+                    width: 9, height: 9,
+                    fill: '#fff', stroke: 'gray', strokeWidth: 1,
+                    originX: 'center', originY: 'center',
+                    angle: 45, rx: 2, ry: 2,
+                    selectable: true, evented: true,
+                    hasControls: false, hasBorders: false,
+                    customType: 'bezier-handle', handleIndex: 1
                 });
 
                 const diamond2 = new fabric.Rect({
-                    left: threeQuarterX,
-                    top: threeQuarterY,
-                    width: 9,
-                    height: 9,
-                    fill: '#fff',
-                    stroke: 'gray',
-                    strokeWidth: 1,
-                    originX: 'center',
-                    originY: 'center',
-                    angle: 45,
-                    rx: 2,
-                    ry: 2,
-                    selectable: true,
-                    evented: true,
-                    hasControls: false,
-                    hasBorders: false,
-                    customType: 'bezier-handle',
-                    handleIndex: 2
+                    left: threeQuarterX, top: threeQuarterY,
+                    width: 9, height: 9,
+                    fill: '#fff', stroke: 'gray', strokeWidth: 1,
+                    originX: 'center', originY: 'center',
+                    angle: 45, rx: 2, ry: 2,
+                    selectable: true, evented: true,
+                    hasControls: false, hasBorders: false,
+                    customType: 'bezier-handle', handleIndex: 2
                 });
 
                 const line1 = new fabric.Line(
@@ -560,6 +520,42 @@ function CanvasEditor() {
 
                 diamondGroupRefs.current.push({ diamond: diamond1, line: line1 });
                 diamondGroupRefs.current.push({ diamond: diamond2, line: line2 });
+            } else if (target && target.customType === 'pen-path') {
+                saveState();
+                const canvas = fabricRef.current;
+                const props = target.customProps;
+
+                // Show anchors
+                if (props.from.anchor) {
+                    props.from.anchor.set({ visible: true, evented: true });
+                    canvas.add(props.from.anchor);
+                }
+                if (props.to.anchor) {
+                    props.to.anchor.set({ visible: true, evented: true });
+                    canvas.add(props.to.anchor);
+                }
+
+                // Show handle diamonds and direction lines
+                props.handle1.set({ visible: true, evented: true });
+                props.handle2.set({ visible: true, evented: true });
+                props.anchorToHandle1.set({ visible: true, evented: false });
+                props.anchorToHandle2.set({ visible: true, evented: false });
+
+                canvas.add(props.handle1);
+                canvas.add(props.handle2);
+                canvas.add(props.anchorToHandle1);
+                canvas.add(props.anchorToHandle2);
+
+                // Bring to front
+                canvas.bringToFront(props.handle1);
+                canvas.bringToFront(props.handle2);
+
+                diamondGroupRefs.current = [
+                    { diamond: props.handle1, line: props.anchorToHandle1 },
+                    { diamond: props.handle2, line: props.anchorToHandle2 }
+                ];
+
+                canvas.requestRenderAll();
             }
         });
 
@@ -569,27 +565,6 @@ function CanvasEditor() {
 
         return () => canvas.dispose();
     }, []);
-
-    // const drawAnchor = (point) => {
-    //     const canvas = fabricRef.current;
-    //     const anchor = new fabric.Circle({
-    //         left: point.x,
-    //         top: point.y,
-    //         radius: 5,
-    //         fill: '#fff',
-    //         stroke: '#3b82f6',
-    //         strokeWidth: 1,
-    //         originX: 'center',
-    //         originY: 'center',
-    //         selectable: true,
-    //         hasBorders: false,
-    //         hasControls: false,
-    //         customType: 'anchor',
-    //     });
-    //     canvas.add(anchor);
-    //     canvas.bringToFront(anchor);
-    //     return anchor;
-    // };
 
     const activatePenTool = () => {
         const canvas = fabricRef.current;
@@ -603,17 +578,6 @@ function CanvasEditor() {
             canvas.remove(lastDrawnLineRef.current);
             lastDrawnLineRef.current = null;
         }
-
-        // Clear all diamond handles and anchors when activating pen tool
-        // canvas.getObjects().forEach(obj => {
-        //     if (obj.customType === 'diamond' ||
-        //         obj.customType === 'bezier-handle' ||
-        //         obj.customType === 'handleLine' ||
-        //         obj.customType === 'anchor') {
-        //         canvas.remove(obj);
-        //     }
-        // });
-        // diamondGroupRefs.current = [];
 
         isPenToolActiveRef.current = true;
         isDrawingRef.current = false;
@@ -810,7 +774,7 @@ function CanvasEditor() {
         setSelectedObject(obj);
 
         // Show toolbar only if it's the bezier group
-        if (obj?.type === 'group' && obj?.customProps) {
+        if (obj) {
             const bound = obj.getBoundingRect();
             const canvasEl = canvasRef.current.getBoundingClientRect();
 
@@ -864,7 +828,6 @@ function CanvasEditor() {
                     to,
                     handle1,
                     handle2,
-                    directionLine,
                     anchorToHandle1,
                     anchorToHandle2
                 } = activeObject.customProps;
@@ -875,10 +838,9 @@ function CanvasEditor() {
                     to.anchor,
                     handle1,
                     handle2,
-                    directionLine,
                     anchorToHandle1,
                     anchorToHandle2,
-                    activeObject // finally remove the path itself
+                    activeObject
                 ].forEach(obj => {
                     if (obj) canvas.remove(obj);
                 });
@@ -886,11 +848,6 @@ function CanvasEditor() {
                 // For regular objects, just remove the selected object
                 canvas.remove(activeObject);
             }
-
-            groupItems.current.forEach(obj => {
-                if (obj && canvas.contains(obj)) canvas.remove(obj);
-            });
-            groupItems.current = [];
 
             setToolbarPos(null);
             setSelectedObject(null);
