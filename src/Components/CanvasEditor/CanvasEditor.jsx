@@ -218,8 +218,8 @@ function CanvasEditor() {
                 const { from, to } = obj.customProps;
 
                 // Calculate the movement delta
-                const deltaX = obj.left - obj.originalLeft;
-                const deltaY = obj.top - obj.originalTop;
+                const deltaX = obj.left - (obj.originalLeft || obj.left);
+                const deltaY = obj.top - (obj.originalTop || obj.top);
 
                 // Update the line points
                 obj.set({
@@ -230,6 +230,11 @@ function CanvasEditor() {
                     left: null,
                     top: null
                 });
+
+                obj.customProps.from.x += deltaX;
+                obj.customProps.from.y += deltaY;
+                obj.customProps.to.x += deltaX;
+                obj.customProps.to.y += deltaY;
 
                 // Update anchor positions if they exist
                 if (from.anchor) {
@@ -250,44 +255,9 @@ function CanvasEditor() {
                     to.y += deltaY;
                 }
 
-                // Update any associated bezier paths and handles
-                const allObjects = canvas.getObjects();
-                allObjects.forEach(otherObj => {
-                    if (otherObj.customType === 'pen-path' &&
-                        otherObj.customProps.from.x === from.x - deltaX &&
-                        otherObj.customProps.from.y === from.y - deltaY &&
-                        otherObj.customProps.to.x === to.x - deltaX &&
-                        otherObj.customProps.to.y === to.y - deltaY) {
+                obj.originalLeft = obj.left;
+                obj.originalTop = obj.top;
 
-                        const props = otherObj.customProps;
-
-                        // Update the from/to positions
-                        props.from.x += deltaX;
-                        props.from.y += deltaY;
-                        props.to.x += deltaX;
-                        props.to.y += deltaY;
-
-                        // Update the path
-                        const newPathString = `M ${from.x} ${from.y} C ${props.handle1.left} ${props.handle1.top}, ${props.handle2.left} ${props.handle2.top}, ${to.x} ${to.y}`;
-                        const updated = new fabric.Path(newPathString);
-                        otherObj.path = updated.path;
-
-                        // Update direction lines
-                        props.anchorToHandle1.set({
-                            x1: from.x,
-                            y1: from.y,
-                            x2: props.handle1.left,
-                            y2: props.handle1.top
-                        });
-
-                        props.anchorToHandle2.set({
-                            x1: to.x,
-                            y1: to.y,
-                            x2: props.handle2.left,
-                            y2: props.handle2.top
-                        });
-                    }
-                });
                 canvas.requestRenderAll();
             }
             else if (obj.customType === 'anchor') {
@@ -303,19 +273,12 @@ function CanvasEditor() {
                             // This is the starting anchor
                             lineProps.from.x = obj.left;
                             lineProps.from.y = obj.top;
-                            otherObj.set({
-                                x1: obj.left,
-                                y1: obj.top
-                            });
-                        }
-                        else if (lineProps.to.anchor === obj) {
+                            otherObj.set({ x1: obj.left, y1: obj.top });
+                        } else if (lineProps.to.anchor === obj) {
                             // This is the ending anchor
                             lineProps.to.x = obj.left;
                             lineProps.to.y = obj.top;
-                            otherObj.set({
-                                x2: obj.left,
-                                y2: obj.top
-                            });
+                            otherObj.set({ x2: obj.left, y2: obj.top });
                         }
                     }
                     else if (otherObj.customType === 'pen-path') {
@@ -327,8 +290,8 @@ function CanvasEditor() {
                             pathProps.from.y = obj.top;
 
                             // Update path
-                            const newPathString = `M ${obj.left} ${obj.top} C ${pathProps.handle1.left} ${pathProps.handle1.top}, ${pathProps.handle2.left} ${pathProps.handle2.top}, ${pathProps.to.x} ${pathProps.to.y}`;
-                            const updated = new fabric.Path(newPathString);
+                            const newPath = `M ${obj.left} ${obj.top} C ${pathProps.handle1.left} ${pathProps.handle1.top}, ${pathProps.handle2.left} ${pathProps.handle2.top}, ${pathProps.to.x} ${pathProps.to.y}`;
+                            const updated = new fabric.Path(newPath);
                             otherObj.path = updated.path;
 
                             // Update direction line
@@ -338,15 +301,14 @@ function CanvasEditor() {
                                 x2: pathProps.handle1.left,
                                 y2: pathProps.handle1.top
                             });
-                        }
-                        else if (pathProps.to.anchor === obj) {
+                        } else if (pathProps.to.anchor === obj) {
                             // Update path ending point
                             pathProps.to.x = obj.left;
                             pathProps.to.y = obj.top;
 
                             // Update path
-                            const newPathString = `M ${pathProps.from.x} ${pathProps.from.y} C ${pathProps.handle1.left} ${pathProps.handle1.top}, ${pathProps.handle2.left} ${pathProps.handle2.top}, ${obj.left} ${obj.top}`;
-                            const updated = new fabric.Path(newPathString);
+                            const newPath = `M ${pathProps.from.x} ${pathProps.from.y} C ${pathProps.handle1.left} ${pathProps.handle1.top}, ${pathProps.handle2.left} ${pathProps.handle2.top}, ${obj.left} ${obj.top}`;
+                            const updated = new fabric.Path(newPath);
                             otherObj.path = updated.path;
 
                             // Update direction line
@@ -359,6 +321,64 @@ function CanvasEditor() {
                         }
                     }
                 });
+                canvas.requestRenderAll();
+            }
+            // ✅ NEW: Move pen-path along with anchor, handles, direction lines
+            else if (obj.customType === 'pen-path') {
+                const props = obj.customProps;
+
+                const deltaX = obj.left - (obj.originalLeft || obj.left);
+                const deltaY = obj.top - (obj.originalTop || obj.top);
+
+                if (props.from.anchor) {
+                    props.from.anchor.left += deltaX;
+                    props.from.anchor.top += deltaY;
+                    props.from.x += deltaX;
+                    props.from.y += deltaY;
+                }
+
+                if (props.to.anchor) {
+                    props.to.anchor.left += deltaX;
+                    props.to.anchor.top += deltaY;
+                    props.to.x += deltaX;
+                    props.to.y += deltaY;
+                }
+
+                props.handle1.left += deltaX;
+                props.handle1.top += deltaY;
+                props.handle2.left += deltaX;
+                props.handle2.top += deltaY;
+
+                props.anchorToHandle1.set({
+                    x1: props.from.x,
+                    y1: props.from.y,
+                    x2: props.handle1.left,
+                    y2: props.handle1.top
+                });
+                props.anchorToHandle1.setCoords();
+
+                props.anchorToHandle2.set({
+                    x1: props.to.x,
+                    y1: props.to.y,
+                    x2: props.handle2.left,
+                    y2: props.handle2.top
+                });
+                props.anchorToHandle2.setCoords();
+
+                const newPath = `M ${props.from.x} ${props.from.y} C ${props.handle1.left} ${props.handle1.top}, ${props.handle2.left} ${props.handle2.top}, ${props.to.x} ${props.to.y}`;
+                const updated = new fabric.Path(newPath);
+                obj.path = updated.path;
+
+                obj.originalLeft = obj.left;
+                obj.originalTop = obj.top;
+
+                props.handle1.setCoords();
+                props.handle2.setCoords();
+                props.from.anchor.setCoords();
+                props.to.anchor.setCoords();
+                props.anchorToHandle1.setCoords();
+                props.anchorToHandle2.setCoords();
+
                 canvas.requestRenderAll();
             }
         });
@@ -820,39 +840,101 @@ function CanvasEditor() {
         const canvas = fabricRef.current;
         const activeObject = canvas.getActiveObject();
 
-        if (activeObject) {
-            // If it's a bezier path with customProps, delete related items too
-            if (activeObject.type === 'path' && activeObject.customProps) {
-                const {
-                    from,
-                    to,
-                    handle1,
-                    handle2,
-                    anchorToHandle1,
-                    anchorToHandle2
-                } = activeObject.customProps;
+        if (!activeObject) return;
 
-                // Remove all associated elements from canvas
-                [
-                    from.anchor,
-                    to.anchor,
-                    handle1,
-                    handle2,
-                    anchorToHandle1,
-                    anchorToHandle2,
-                    activeObject
-                ].forEach(obj => {
-                    if (obj) canvas.remove(obj);
-                });
-            } else {
-                // For regular objects, just remove the selected object
-                canvas.remove(activeObject);
+        let penPathToDelete = null;
+
+        // 1. If blue path is selected
+        if (activeObject.customType === 'pen-path') {
+            penPathToDelete = activeObject;
+        }
+
+        // 2. If handle, direction line, or anchor is selected → find associated path
+        else if (
+            activeObject.customType === 'bezier-handle' ||
+            activeObject.customType === 'handleLine' ||
+            activeObject.customType === 'anchor'
+        ) {
+            const allObjects = canvas.getObjects();
+            for (const obj of allObjects) {
+                if (obj.customType === 'pen-path' && obj.customProps) {
+                    const props = obj.customProps;
+                    if (
+                        activeObject === props.handle1 ||
+                        activeObject === props.handle2 ||
+                        activeObject === props.anchorToHandle1 ||
+                        activeObject === props.anchorToHandle2 ||
+                        activeObject === props.from.anchor ||
+                        activeObject === props.to.anchor
+                    ) {
+                        penPathToDelete = obj;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // 3. Delete entire pen-path group if found
+        if (penPathToDelete) {
+            const props = penPathToDelete.customProps;
+            const elementsToRemove = [
+                props.from.anchor,
+                props.to.anchor,
+                props.handle1,
+                props.handle2,
+                props.anchorToHandle1,
+                props.anchorToHandle2,
+                penPathToDelete
+            ];
+
+            elementsToRemove.forEach(obj => {
+                if (obj && canvas.getObjects().includes(obj)) {
+                    canvas.remove(obj);
+                }
+            });
+
+            // Clean refs
+            diamondGroupRefs.current = diamondGroupRefs.current.filter(
+                group => group.diamond !== props.handle1 && group.diamond !== props.handle2
+            );
+            allAnchors.current = allAnchors.current.filter(
+                anchor => anchor !== props.from.anchor && anchor !== props.to.anchor
+            );
+
+            setToolbarPos(null);
+            setSelectedObject(null);
+            canvas.discardActiveObject().requestRenderAll();
+            return;
+        }
+
+        // 4. Else, check if it's a straight pen-line
+        if (activeObject.customType === 'pen-line') {
+            const { from, to } = activeObject.customProps;
+
+            // Remove the line
+            canvas.remove(activeObject);
+
+            // Remove anchors if they exist
+            if (from.anchor && canvas.getObjects().includes(from.anchor)) {
+                canvas.remove(from.anchor);
+                allAnchors.current = allAnchors.current.filter(a => a !== from.anchor);
+            }
+            if (to.anchor && canvas.getObjects().includes(to.anchor)) {
+                canvas.remove(to.anchor);
+                allAnchors.current = allAnchors.current.filter(a => a !== to.anchor);
             }
 
             setToolbarPos(null);
             setSelectedObject(null);
             canvas.discardActiveObject().requestRenderAll();
+            return;
         }
+
+        // 5. Default: delete normal object
+        canvas.remove(activeObject);
+        setToolbarPos(null);
+        setSelectedObject(null);
+        canvas.discardActiveObject().requestRenderAll();
     };
 
     return (
