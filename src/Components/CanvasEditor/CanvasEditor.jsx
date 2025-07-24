@@ -67,6 +67,7 @@ function CanvasEditor() {
                 const tempLine = new fabric.Line([from.x, from.y, point.x, point.y], {
                     stroke: 'lightblue',
                     strokeWidth: 1,
+                    strokeLineCap: 'round',
                     selectable: true,
                     hasBorders: false,
                     hasControls: false,
@@ -77,7 +78,8 @@ function CanvasEditor() {
 
                 canvas.add(tempLine);
                 canvas.sendToBack(tempLine);
-                lastDrawnLineRef.current = tempLine;
+                tempLine.setCoords();
+                // lastDrawnLineRef.current = tempLine;
             }
 
             points.current.push(newPoint);
@@ -108,7 +110,7 @@ function CanvasEditor() {
                 left: point.x, top: point.y,
                 radius: 5, fill: '#fff', stroke: '#3b82f6', strokeWidth: 1,
                 originX: 'center', originY: 'center',
-                selectable: true, hasBorders: false, hasControls: false,
+                selectable: false, hasBorders: false, hasControls: false,
                 customType: 'anchor',
             });
             canvas.add(anchor);
@@ -386,6 +388,16 @@ function CanvasEditor() {
         canvas.on('mouse:down', function (opt) {
             const target = opt.target;
 
+            // Prevent selection of anchors and bezier handles
+            if (target && (
+                target.customType === 'anchor' ||
+                target.customType === 'bezier-handle' ||
+                target.customType === 'handleLine'
+            )) {
+                canvas.discardActiveObject();
+                return;
+            }
+
             if (target && target.customType === 'pen-line') {
                 saveState();
                 const canvas = fabricRef.current;
@@ -649,31 +661,31 @@ function CanvasEditor() {
 
     const addSquare = () => {
         saveState();
-        const square = new fabric.Rect({ left: 190, top: 140, width: 100, height: 100, fill: "black", });
+        const square = new fabric.Rect({ left: 190, top: 140, width: 100, height: 100, fill: "black", selectable: true });
         fabricRef.current.add(square);
     };
 
     const addRectangle = () => {
         saveState();
-        const rect = new fabric.Rect({ left: 190, top: 140, width: 120, height: 80, rx: 6, ry: 6, fill: "black", });
+        const rect = new fabric.Rect({ left: 190, top: 140, width: 120, height: 80, rx: 6, ry: 6, fill: "black", selectable: true });
         fabricRef.current.add(rect);
     };
 
     const addTriangle = () => {
         saveState();
-        const triangle = new fabric.Triangle({ left: 190, top: 140, width: 100, height: 100, fill: "black", });
+        const triangle = new fabric.Triangle({ left: 190, top: 140, width: 100, height: 100, fill: "black", selectable: true });
         fabricRef.current.add(triangle);
     };
 
     const addCircle = () => {
         saveState();
-        const circle = new fabric.Circle({ left: 190, top: 140, width: 150, height: 150, radius: 50, fill: "black", });
+        const circle = new fabric.Circle({ left: 190, top: 140, width: 150, height: 150, radius: 50, fill: "black", selectable: true });
         fabricRef.current.add(circle);
     };
 
     const addLine = () => {
         saveState();
-        const line = new fabric.Line([500, 100, 650, 100], { left: 190, top: 140, stroke: 'black', strokeWidth: 2, });
+        const line = new fabric.Line([500, 100, 650, 100], { left: 190, top: 140, stroke: 'black', strokeWidth: 2, selectable: true });
         fabricRef.current.add(line);
     };
 
@@ -712,7 +724,8 @@ function CanvasEditor() {
             top: 140,
             fill: "black",
             originX: "center",
-            originY: "center"
+            originY: "center",
+            selectable: true,
         });
         fabricRef.current.add(roundedoctagon);
     }
@@ -726,7 +739,8 @@ function CanvasEditor() {
             top: 140,
             fill: 'black',
             originX: 'center',
-            originY: 'center'
+            originY: 'center',
+            selectable: true
         });
         fabricRef.current.add(diamondstar);
     }
@@ -740,14 +754,15 @@ function CanvasEditor() {
             top: 140,
             fill: 'black',
             originX: 'center',
-            originY: 'center'
+            originY: 'center',
+            selectable: true
         });
         fabricRef.current.add(star);
     }
 
     const addText = () => {
         saveState();
-        const text = new fabric.IText("Edit me", { left: 190, top: 140, fontSize: 24, fill: "black", });
+        const text = new fabric.IText("Edit me", { left: 190, top: 140, fontSize: 24, fill: "black", selectable: true });
         fabricRef.current.add(text);
     };
 
@@ -793,6 +808,16 @@ function CanvasEditor() {
         const obj = e.selected[0];
         setSelectedObject(obj);
 
+        // Don't show toolbar for anchors or bezier handles
+        if (obj && (
+            obj.customType === 'anchor' ||
+            obj.customType === 'bezier-handle' ||
+            obj.customType === 'handleLine'
+        )) {
+            setToolbarPos(null);
+            return;
+        }
+
         // Show toolbar only if it's the bezier group
         if (obj) {
             const bound = obj.getBoundingRect();
@@ -803,7 +828,7 @@ function CanvasEditor() {
 
             setToolbarPos({ x: toolbarX, y: toolbarY });
         } else {
-            // Hide toolbar if not group
+            // Hide toolbar if nothing is selected
             setToolbarPos(null);
         }
     };
@@ -844,12 +869,12 @@ function CanvasEditor() {
 
         let penPathToDelete = null;
 
-        // 1. If blue path is selected
+        // 1. If pen-path (blue curve) is selected
         if (activeObject.customType === 'pen-path') {
             penPathToDelete = activeObject;
         }
 
-        // 2. If handle, direction line, or anchor is selected → find associated path
+        // 2. If any related part (handle, line, anchor) is selected
         else if (
             activeObject.customType === 'bezier-handle' ||
             activeObject.customType === 'handleLine' ||
@@ -874,7 +899,69 @@ function CanvasEditor() {
             }
         }
 
-        // 3. Delete entire pen-path group if found
+        // 3. If a pen-line is selected, check if a path was created from it
+        else if (activeObject.customType === 'pen-line') {
+            const allObjects = canvas.getObjects();
+            const { from, to } = activeObject.customProps;
+
+            // Find related path if it exists
+            const relatedPath = allObjects.find(obj =>
+                obj.customType === 'pen-path' &&
+                obj.customProps &&
+                obj.customProps.from.x === from.x &&
+                obj.customProps.from.y === from.y &&
+                obj.customProps.to.x === to.x &&
+                obj.customProps.to.y === to.y
+            );
+
+            if (relatedPath) {
+                penPathToDelete = relatedPath;
+            }
+
+            // Delete the pen-line and all its associated elements
+            const elementsToRemove = [activeObject];
+
+            // Add anchors if they exist
+            if (from.anchor) {
+                elementsToRemove.push(from.anchor);
+                allAnchors.current = allAnchors.current.filter(a => a !== from.anchor);
+            }
+            if (to.anchor) {
+                elementsToRemove.push(to.anchor);
+                allAnchors.current = allAnchors.current.filter(a => a !== to.anchor);
+            }
+
+            // If there's a related path, add all its components to be removed
+            if (relatedPath && relatedPath.customProps) {
+                const props = relatedPath.customProps;
+                elementsToRemove.push(
+                    props.handle1,
+                    props.handle2,
+                    props.anchorToHandle1,
+                    props.anchorToHandle2,
+                    relatedPath
+                );
+
+                // Cleanup refs for handles
+                diamondGroupRefs.current = diamondGroupRefs.current.filter(
+                    group => group.diamond !== props.handle1 && group.diamond !== props.handle2
+                );
+            }
+
+            // Remove all elements
+            elementsToRemove.forEach(obj => {
+                if (obj && canvas.getObjects().includes(obj)) {
+                    canvas.remove(obj);
+                }
+            });
+
+            setToolbarPos(null);
+            setSelectedObject(null);
+            canvas.discardActiveObject().requestRenderAll();
+            return;
+        }
+
+        // 🧹 Delete the entire pen-path group
         if (penPathToDelete) {
             const props = penPathToDelete.customProps;
             const elementsToRemove = [
@@ -893,7 +980,7 @@ function CanvasEditor() {
                 }
             });
 
-            // Clean refs
+            // Cleanup refs
             diamondGroupRefs.current = diamondGroupRefs.current.filter(
                 group => group.diamond !== props.handle1 && group.diamond !== props.handle2
             );
@@ -907,34 +994,13 @@ function CanvasEditor() {
             return;
         }
 
-        // 4. Else, check if it's a straight pen-line
-        if (activeObject.customType === 'pen-line') {
-            const { from, to } = activeObject.customProps;
-
-            // Remove the line
+        // 4. Default: delete other types of shapes, text, images
+        if (!penPathToDelete && activeObject) {
             canvas.remove(activeObject);
-
-            // Remove anchors if they exist
-            if (from.anchor && canvas.getObjects().includes(from.anchor)) {
-                canvas.remove(from.anchor);
-                allAnchors.current = allAnchors.current.filter(a => a !== from.anchor);
-            }
-            if (to.anchor && canvas.getObjects().includes(to.anchor)) {
-                canvas.remove(to.anchor);
-                allAnchors.current = allAnchors.current.filter(a => a !== to.anchor);
-            }
-
             setToolbarPos(null);
             setSelectedObject(null);
             canvas.discardActiveObject().requestRenderAll();
-            return;
         }
-
-        // 5. Default: delete normal object
-        canvas.remove(activeObject);
-        setToolbarPos(null);
-        setSelectedObject(null);
-        canvas.discardActiveObject().requestRenderAll();
     };
 
     return (
